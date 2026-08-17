@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-ssr/
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+
+# Session config, not project config
+.claude/
