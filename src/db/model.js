@@ -123,17 +123,29 @@ export const introduceInRoom = async (db, address, profile) => {
 }
 
 /**
+ * The keyring lives in its own node, not on the user node.
+ *
+ * It used to be a field on `user:<address>`, and that was a latent way to lose
+ * your own spaces: assigning a role rewrites that node and drops every
+ * application field with it. Observed directly — after a promotion the node was
+ * left as `{ role, ethAddress, assignedByEthAddress, expiresAt }` and nothing
+ * else. Real accounts survived only because the app happened to rewrite them
+ * afterwards, which is a race, and losing it means losing the passwords to
+ * every client space you had been admitted to.
+ *
+ * A node of its own is untouched by governance, still replicates (so the
+ * keyring follows the identity to another device), and is owned through ACLs so
+ * no other peer can overwrite it.
+ */
+const keyringId = (address) => `keyring:${address}`
+
+/**
  * Remember a room the caller has been admitted to.
  *
- * The password is encrypted with a key derived from the caller's own identity
- * before it touches the graph, so the public directory carries a secret only
- * its owner can open. This encrypts *for yourself* — there is no recipient —
- * which is exactly the shape needed here: the field is a private keyring, not a
- * way to hand the key to somebody else.
- *
- * The rest of the profile stays plaintext, so a reactive `db.map()` keeps
- * carrying it. That is why this uses `encryptDataForCurrentUser` on one field
- * rather than `db.sm.put`, which would hide the whole record.
+ * The passwords are encrypted with a key derived from the caller's own identity
+ * before they touch the graph. This encrypts *for yourself* — there is no
+ * recipient — which is exactly the shape needed: a private keyring, not a way
+ * to hand a key to somebody else.
  *
  * @param {object} db - The directory instance.
  * @param {string} address - The caller's Ethereum address.
@@ -141,30 +153,67 @@ export const introduceInRoom = async (db, address, profile) => {
  * @returns {Promise<string>} The node id.
  */
 export const rememberRoom = async (db, address, room) => {
-  const id = `user:${address}`
-  const { result } = await db.get(id)
-  const keyring = await readKeyring(db, result?.value)
+  const keyring = await readKeyring(db, address)
   const next = [...keyring.filter((entry) => entry.slug !== room.slug), room]
-  return db.put({ ...result?.value, keyring: await db.sm.encryptDataForCurrentUser(next) }, id)
+  return db.sm.acls.set(
+    { type: "keyring", owner: address, rooms: await db.sm.encryptDataForCurrentUser(next) },
+    keyringId(address)
+  )
 }
 
 /**
  * Open the caller's keyring, if it is theirs to open.
  *
- * The throw *is* the ownership test: an address field is plain data any peer
+ * The throw *is* the ownership test: an `owner` field is plain data any peer
  * with a write role can set, while the key cannot be faked.
  *
  * @param {object} db - The directory instance.
- * @param {object} [profile] - The `user:<address>` node value.
+ * @param {string} address - The caller's Ethereum address.
  * @returns {Promise<Array<{slug: string, password: string, owner: string}>>}
  */
-export const readKeyring = async (db, profile) => {
-  if (!profile?.keyring) return []
+export const readKeyring = async (db, address) => {
+  if (!address) return []
+  const { result } = await db.get(keyringId(address))
+  if (!result?.value?.rooms) return []
   try {
-    return await db.sm.decryptDataForCurrentUser(profile.keyring)
+    return await db.sm.decryptDataForCurrentUser(result.value.rooms)
   } catch {
     return [] // not ours
   }
+}
+
+/**
+ * Move a keyring that still lives on the user node.
+ *
+ * Anyone who used an earlier build has their room passwords in the place a role
+ * assignment can erase. This lifts them out on the next sign-in and clears the
+ * old field, so the window closes for good rather than staying open for
+ * whoever happens to be promoted next.
+ *
+ * @param {object} db - The directory instance.
+ * @param {string} address
+ * @returns {Promise<boolean>} whether anything was moved.
+ */
+export const migrateKeyring = async (db, address) => {
+  const userId = `user:${address}`
+  const { result } = await db.get(userId)
+  if (!result?.value?.keyring) return false
+
+  let rooms
+  try {
+    rooms = await db.sm.decryptDataForCurrentUser(result.value.keyring)
+  } catch {
+    return false // not ours to move
+  }
+
+  await db.sm.acls.set(
+    { type: "keyring", owner: address, rooms: await db.sm.encryptDataForCurrentUser(rooms) },
+    keyringId(address)
+  )
+
+  const { keyring, ...withoutKeyring } = result.value
+  await db.put(withoutKeyring, userId)
+  return true
 }
 
 // ── Tenant graph ─────────────────────────────────────────────────────

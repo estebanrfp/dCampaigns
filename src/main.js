@@ -15,7 +15,7 @@
  */
 import { forgetPendingRoom, openDirectory, openTenant, pendingRoom } from "./db/rooms.js"
 import { SUPERADMIN } from "./db/config.js"
-import { ensureRole, introduceInRoom, readKeyring } from "./db/model.js"
+import { ensureRole, introduceInRoom, migrateKeyring, readKeyring } from "./db/model.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
 import { render } from "./ui/views.js"
@@ -101,9 +101,16 @@ const watchSelf = async (address) => {
   let introduced = false
   let drawn = null // what the view was last built from
 
+  // The keyring is its own node now, so it gets its own subscription: it
+  // changes when a room is joined, which has nothing to do with the role.
+  const keyring = await directory.get(`keyring:${address}`, async () => {
+    state.keyring = await readKeyring(directory, address)
+    render()
+  })
+  state.keyring = await readKeyring(directory, address)
+
   const { unsubscribe } = await directory.get(`user:${address}`, async (node) => {
     state.role = node?.value?.role ?? "guest"
-    state.keyring = await readKeyring(directory, node?.value)
     el.sessionRole.textContent = state.role
     el.sessionRole.dataset.role = state.role
 
@@ -132,7 +139,11 @@ const watchSelf = async (address) => {
 
     render()
   })
-  unwatchRole = unsubscribe
+
+  unwatchRole = () => {
+    unsubscribe?.()
+    keyring.unsubscribe?.()
+  }
 }
 
 // 5. The session callback, wired last: it fires immediately with the current state.
@@ -154,6 +165,12 @@ await initIdentity(directory, (securityState) => {
     ensureRole(directory, activeAddress)
       .then((repaired) => repaired && toast("Your identity was missing a role — fixed", "info"))
       .catch((error) => console.error("[dCampaigns] could not ensure a role:", error))
+
+    // Lift an old keyring out of the user node, where a role assignment could
+    // erase the passwords to every space this identity was admitted to.
+    migrateKeyring(directory, activeAddress)
+      .then((moved) => moved && toast("Your room keys were moved somewhere safer", "info"))
+      .catch((error) => console.error("[dCampaigns] could not migrate the keyring:", error))
 
     watchSelf(activeAddress)
     return
