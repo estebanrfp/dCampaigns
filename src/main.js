@@ -15,7 +15,7 @@
  */
 import { forgetPendingRoom, openDirectory, openTenant, pendingRoom } from "./db/rooms.js"
 import { SUPERADMIN } from "./db/config.js"
-import { introduceInRoom, readKeyring } from "./db/model.js"
+import { ensureRole, introduceInRoom, readKeyring } from "./db/model.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
 import { render } from "./ui/views.js"
@@ -147,6 +147,14 @@ await initIdentity(directory, (securityState) => {
     // The operator lands on the side they actually work from.
     if (activeAddress === SUPERADMIN.address) state.side = "admin"
     unwatchRole?.()
+
+    // Before watching the role, make sure there is one to watch. An identity
+    // whose node predates the Security Manager stamping a role is invisible to
+    // governance, and no amount of waiting fixes it.
+    ensureRole(directory, activeAddress)
+      .then((repaired) => repaired && toast("Your identity was missing a role — fixed", "info"))
+      .catch((error) => console.error("[dCampaigns] could not ensure a role:", error))
+
     watchSelf(activeAddress)
     return
   }

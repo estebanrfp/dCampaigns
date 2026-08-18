@@ -57,6 +57,33 @@ export const createClientSpace = (db, { slug, name, owner }) =>
   db.put({ type: "client", slug, name, owner, createdAt: now() }, `client:${slug}`)
 
 /**
+ * Make sure this identity carries a role at all.
+ *
+ * Governance matches on the field: a rule reading `{ role: "guest" }` cannot
+ * reach a node that has no `role`, and such a node is not slow to be promoted —
+ * it is invisible. Worse, the interface prints "guest" for it anyway, because
+ * that is the sensible fallback, so the account looks like every other newcomer
+ * while being unreachable.
+ *
+ * Observed in real use: a node holding only `displayName`, `requestedSide` and
+ * `keyring`, written before the Security Manager had stamped a role, stranded
+ * for good while fresh accounts sailed through.
+ *
+ * `role` goes first in the spread so an existing one always wins.
+ *
+ * @param {object} db - The directory instance.
+ * @param {string} address
+ * @returns {Promise<boolean>} whether a role had to be written.
+ */
+export const ensureRole = async (db, address) => {
+  const id = `user:${address}`
+  const { result } = await db.get(id)
+  if (result?.value?.role) return false
+  await db.put({ role: "guest", ...result?.value }, id)
+  return true
+}
+
+/**
  * Introduce the caller into a room they have just entered.
  *
  * Roles are stored per graph, so an identity that is a `client` in the
