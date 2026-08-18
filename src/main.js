@@ -111,7 +111,14 @@ const watchSelf = async (address) => {
     // holds, so that room's governance can grant the matching role.
     if (state.tenant && node?.value && !introduced) {
       introduced = true
-      await introduceInRoom(state.tenant, address, node.value)
+      try {
+        await introduceInRoom(state.tenant, address, node.value)
+      } catch (error) {
+        // Silence here is the worst outcome: an identity nobody in the room can
+        // name, and a client who cannot assign work to them.
+        console.error("[dCampaigns] could not introduce this identity in the room:", error)
+        toast("Could not announce you in this space", "error")
+      }
     }
 
     render()

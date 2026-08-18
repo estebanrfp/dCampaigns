@@ -10,9 +10,11 @@
  */
 import { enterRoomAndReload } from "../db/rooms.js"
 import {
+  assignTask,
   createCampaign,
   createClientSpace,
   createTask,
+  creatorsInRoom,
   decideSubmission,
   rememberRoom,
   submitWork,
@@ -177,16 +179,30 @@ const renderTasks = async () => {
         elt(
           "div",
           { className: "row spread" },
-          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status }),
-          // Disabled, not hidden: a locked control teaches the trust model,
-          // a missing one just looks broken.
-          elt("button", {
-            textContent: "Submit work",
-            disabled: !can("submit"),
-            title: can("submit") ? "Submit work for this task" : "Earn the creator role to deliver",
-            onclick: () => renderSubmitForm(id, value),
-          })
-        )
+          // A task asked of someone else is still visible — the room is shared
+          // and pretending otherwise would be theatre — but it is not yours.
+          elt("span", {
+            className: "stat-label",
+            textContent: !value.assignee
+              ? "open to anyone"
+              : value.assignee === state.address
+                ? "asked of you"
+                : `asked of ${state.tenant.sm.abbrAddr(value.assignee)}`,
+          }),
+          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
+        ),
+        // Disabled, not hidden: a locked control teaches the trust model,
+        // a missing one just looks broken.
+        elt("button", {
+          textContent: "Submit work",
+          disabled: !can("submit") || (value.assignee && value.assignee !== state.address),
+          title: !can("submit")
+            ? "Earn the creator role to deliver"
+            : value.assignee && value.assignee !== state.address
+              ? "This task was asked of someone else"
+              : "Submit work for this task",
+          onclick: () => renderSubmitForm(id, value),
+        })
       )
     )
   )
@@ -586,18 +602,77 @@ const renderCampaign = async (campaignId, campaign) => {
     )
   )
 
+  const { results: creators } = await creatorsInRoom(state.tenant)
+  const nameOf = new Map(
+    creators.map(({ id, value }) => [
+      id.replace(/^user:/, ""),
+      value.displayName?.trim() || state.tenant.sm.abbrAddr(id.replace(/^user:/, "")),
+    ])
+  )
+
   const { unsubscribe } = await tasksOfCampaign(state.tenant, campaignId, (event) =>
-    liveList(list, ({ value }) =>
+    liveList(list, ({ id, value }) =>
       elt(
         "article",
         { className: "card" },
         elt("div", { className: "item-title", textContent: value.title }),
         elt("p", { className: "item-excerpt", textContent: value.requirements }),
-        elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
+        elt(
+          "div",
+          { className: "row spread" },
+          // Who was asked. An unassigned task says so rather than saying nothing.
+          elt("span", {
+            className: "stat-label",
+            textContent: value.assignee
+              ? `→ ${nameOf.get(value.assignee) ?? state.tenant.sm.abbrAddr(value.assignee)}`
+              : "open to anyone",
+          }),
+          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
+        ),
+        can("assign")
+          ? elt("button", {
+              textContent: value.assignee ? "Reassign" : "Assign",
+              onclick: () => renderAssignForm(id, value, campaignId, campaign),
+            })
+          : null
       )
     )(event)
   )
   unmount = unsubscribe
+}
+
+/** Change who a task is asked of — or reopen it to the room. */
+const renderAssignForm = async (taskId, task, campaignId, campaign) => {
+  unmount?.()
+  const picker = await creatorPicker("assign-to", task.assignee)
+  unmount = picker.unsubscribe
+
+  clear(dom.content)
+  dom.content.append(
+    section(
+      `Assign · ${task.title}`,
+      picker.node,
+      elt(
+        "div",
+        { className: "row" },
+        elt("button", { textContent: "← Back", onclick: () => renderCampaign(campaignId, campaign) }),
+        elt("button", {
+          className: "primary",
+          textContent: "Save",
+          onclick: async () => {
+            try {
+              await state.tenant.sm.executeWithPermission("assign")
+            } catch {
+              return toast("Your role does not hold `assign`", "warning")
+            }
+            await assignTask(state.tenant, taskId, $("assign-to").value || null)
+            toast("Task assigned", "success")
+            await renderCampaign(campaignId, campaign)
+          },
+        })
+      )
+    )
+  )
 }
 
 const renderCampaignForm = () => {
@@ -630,13 +705,66 @@ const renderCampaignForm = () => {
   )
 }
 
-const renderTaskForm = (campaignId, campaign) => {
+/**
+ * A picker of the creators in this room.
+ *
+ * "Anyone" is a real choice, not a placeholder: an open task is how a client
+ * puts work up for whoever gets to it first, and it is the default because a
+ * client often does not know yet who should take it.
+ *
+ * @param {string} id - Element id.
+ * @param {Array} creators - `user:<address>` nodes from the room.
+ * @param {string|null} [selected]
+ */
+const creatorPicker = async (id, selected = null) => {
+  const select = elt("select", { id })
+  select.append(elt("option", { value: "", textContent: "Anyone in this space" }))
+
+  // Live, not a snapshot: a creator who joins while this form is open has to
+  // appear in it. Reading the roster once means the one person the client was
+  // waiting for is the one who never shows up.
+  const { unsubscribe } = await state.tenant.map(
+    { query: { requestedSide: "creator" } },
+    ({ id: nodeId, value, action }) => {
+      const address = nodeId.replace(/^user:/, "")
+      const existing = select.querySelector(`option[value="${CSS.escape(address)}"]`)
+
+      if (action === "removed") return existing?.remove()
+
+      const label = value.displayName?.trim() || state.tenant.sm.abbrAddr(address)
+      if (existing) return (existing.textContent = label)
+
+      const option = elt("option", { value: address, textContent: label })
+      if (address === selected) option.selected = true
+      select.append(option)
+    }
+  )
+
+  const node = elt(
+    "div",
+    { className: "field" },
+    elt("label", { textContent: "Assign to", attrs: { for: id } }),
+    select
+  )
+  return { node, unsubscribe }
+}
+
+const renderTaskForm = async (campaignId, campaign) => {
+  unmount?.()
+  const picker = await creatorPicker("task-assignee")
+  unmount = picker.unsubscribe
+
   clear(dom.content)
   dom.content.append(
     section(
       `New task · ${campaign.title}`,
       field("task-title", "Title", "Post a thread about the launch"),
       field("task-req", "Requirements", "what counts as done"),
+      picker.node,
+      elt("p", {
+        className: "note",
+        textContent: "Creators appear here as they join the space with its access code.",
+      }),
       elt("button", {
         className: "primary",
         textContent: "Create",
@@ -645,6 +773,7 @@ const renderTaskForm = (campaignId, campaign) => {
             campaignId,
             title: $("task-title").value.trim(),
             requirements: $("task-req").value.trim(),
+            assignee: $("task-assignee").value || null,
           })
           toast("Task created", "success")
           await renderCampaign(campaignId, campaign) // back to where it now lives

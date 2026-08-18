@@ -75,9 +75,22 @@ export const createClientSpace = (db, { slug, name, owner }) =>
 export const introduceInRoom = async (db, address, profile) => {
   const id = `user:${address}`
   const { result } = await db.get(id)
-  if (result) return // already known here; a guest has no second write
+
+  // The node may already exist without ever having been introduced: the
+  // Security Manager creates `user:<address>` when the session opens, carrying
+  // a role and nothing else. Skipping on "it exists" therefore skipped every
+  // time, and left an identity the room could not name. Only a declaration
+  // already in place means there is nothing to do.
+  if (result?.value?.requestedSide) return
+
+  // Spread first: `db.put` replaces the whole value, and the role stored here
+  // is the room's, not ours to drop.
   await db.put(
-    { displayName: profile.displayName, requestedSide: profile.requestedSide },
+    {
+      ...result?.value,
+      displayName: profile.displayName,
+      requestedSide: profile.requestedSide,
+    },
     id
   )
 }
@@ -163,6 +176,39 @@ export const createTask = async (db, { campaignId, title, requirements, assignee
   await db.link(campaignId, id)
   return id
 }
+
+/**
+ * Assign a task to a specific creator, or reopen it to anyone.
+ *
+ * The assignment is a signed statement by the client: *this person is the one I
+ * asked*. It is not a lock — any member of the room can still sign a delivery,
+ * and if they do, the graph records exactly who did it and the client rejects
+ * it. What the assignment buys is attribution, not prevention.
+ *
+ * `db.put` replaces the whole value, so the task is spread first.
+ *
+ * @param {object} db - The tenant instance.
+ * @param {string} taskId
+ * @param {string|null} assignee - A creator's address, or null to reopen it.
+ * @returns {Promise<string>} The node id.
+ */
+export const assignTask = async (db, taskId, assignee) => {
+  const { result } = await db.get(taskId)
+  if (!result) throw new Error("That task no longer exists")
+  return db.put({ ...result.value, assignee, assignedAt: assignee ? now() : null }, taskId)
+}
+
+/**
+ * The creators who have joined this room.
+ *
+ * Every identity introduces itself in each graph it enters, carrying the side
+ * it declared, so the room itself knows who is available to be assigned — no
+ * roster to maintain, and no lookup back into the directory.
+ *
+ * @param {object} db - The tenant instance.
+ * @returns {Promise<object>} `{ results }` of `user:<address>` nodes.
+ */
+export const creatorsInRoom = (db) => db.map({ query: { requestedSide: "creator" } })
 
 /**
  * Submit work against a task.
