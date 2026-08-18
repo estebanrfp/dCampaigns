@@ -231,4 +231,13 @@ export const decideSubmission = async (db, { submissionId, verdict, note, review
  * @returns {Promise<object>} `{ results, unsubscribe? }`
  */
 export const tasksOfCampaign = (db, campaignId, callback) =>
-  db.map({ query: { type: "campaign", ref: campaignId, $edge: { type: "task" } } }, callback)
+  db.map(
+    {
+      query: { type: "campaign", ref: campaignId, $edge: { type: "task" } },
+      // Ordering belongs to the engine, not to the view: `initial` then arrives
+      // already sorted and the app never re-sorts what it was handed.
+      field: "createdAt",
+      order: "desc",
+    },
+    callback
+  )

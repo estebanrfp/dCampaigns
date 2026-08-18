@@ -22,19 +22,9 @@ export const SUPERADMIN = {
   address: "0xbfDe0eCEC5332Fd86D2570085571D6051Df098dA",
 }
 
-export const ALICE = {
-  name: "Alice",
-  emoji: "👩‍🦰",
-  mnemonic: "prosper fossil kitten crisp view spread jeans shield prosper myself awake usage",
-  address: "0x3546D4BA0ac3bfDea3F1511F82a078DDdb3F4931",
-}
-
-export const BOB = {
-  name: "Bob",
-  emoji: "👨‍🦱",
-  mnemonic: "salmon grant recall neutral banner glow pluck divert cactus theory rally ship captain shaft cactus",
-  address: "0x8089C0480139d85D82c1E20eeF08a77EF8cD7DEC",
-}
+// Alice and Bob — the ecosystem's other canonical identities — are deliberately
+// absent: this app ships a one-click login only for the operator, and an unused
+// mnemonic sitting in the source is dead code. The tests carry their own copies.
 
 /**
  * The three sides of the product, as roles rather than as levels.

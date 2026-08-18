@@ -54,7 +54,11 @@ export const liveList = (container, renderRow) => {
     row.dataset.id = id
 
     if (action === "initial") return container.append(row) // already sorted by the engine
-    if (action === "added") return container.prepend(row)
-    existing ? existing.replaceWith(row) : container.prepend(row)
+    if (action === "added") return container.prepend(row) // newest by definition
+
+    // `updated`: rebuild and move to the top, so the thing that just changed is
+    // where the eye already is. A silent in-place swap hides the event.
+    existing?.remove()
+    container.prepend(row)
   }
 }

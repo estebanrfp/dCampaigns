@@ -176,9 +176,14 @@ const renderTasks = async () => {
           "div",
           { className: "row spread" },
           elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status }),
-          can("submit")
-            ? elt("button", { textContent: "Submit work", onclick: () => renderSubmitForm(id, value) })
-            : null
+          // Disabled, not hidden: a locked control teaches the trust model,
+          // a missing one just looks broken.
+          elt("button", {
+            textContent: "Submit work",
+            disabled: !can("submit"),
+            title: can("submit") ? "Submit work for this task" : "Earn the creator role to deliver",
+            onclick: () => renderSubmitForm(id, value),
+          })
         )
       )
     )
@@ -463,9 +468,13 @@ const renderCampaign = async (campaignId, campaign) => {
         "div",
         { className: "row" },
         elt("button", { textContent: "← Campaigns", onclick: () => render() }),
-        can("assign")
-          ? elt("button", { className: "primary", textContent: "Add task", onclick: () => renderTaskForm(campaignId, campaign) })
-          : null
+        elt("button", {
+          className: "primary",
+          textContent: "Add task",
+          disabled: !can("assign"),
+          title: can("assign") ? "Add a task to this campaign" : "Only the client can assign work",
+          onclick: () => renderTaskForm(campaignId, campaign),
+        })
       ),
       list
     )
@@ -555,25 +564,56 @@ const mountAdmin = async () => {
   const spaces = elt("div", { className: "card-grid" })
   dom.content.append(section("Client spaces", spaces))
 
-  const people = liveList(dom.list, ({ id, value }) =>
-    elt(
+  const drawPerson = liveList(dom.list, ({ id, value }) => {
+    // The Security Manager keys these nodes by address; the value carries the
+    // role, not the identity, so the address comes from the id.
+    const address = id.replace(/^user:/, "")
+    const role = value.role ?? "guest"
+
+    // What the operator is here to arbitrate: the side someone asked for
+    // against the role they actually hold. A guest that asked months ago and
+    // never got promoted is invisible unless both are on screen.
+    const waiting = value.requestedSide && value.requestedSide !== role
+
+    return elt(
       "li",
       { className: "item" },
-      elt("div", { className: "item-title", textContent: value.displayName ?? "unnamed" }),
       elt(
         "div",
         { className: "row spread" },
-        // The Security Manager keys these nodes by address; the value carries
-        // the role, not the identity, so the address comes from the id.
-        addr(state.directory, id.replace(/^user:/, "")),
         elt("span", {
-          className: "role-tag",
-          dataset: { role: value.role ?? "guest" },
-          textContent: value.role ?? "guest",
-        })
+          className: "item-title",
+          textContent: value.displayName?.trim() || state.directory.sm.abbrAddr(address),
+        }),
+        elt("span", { className: "role-tag", dataset: { role }, textContent: role })
+      ),
+      elt(
+        "div",
+        { className: "row spread" },
+        addr(state.directory, address),
+        waiting
+          ? elt("span", {
+              className: "verdict",
+              dataset: { verdict: "pending" },
+              textContent: `asked for ${value.requestedSide}`,
+            })
+          : null
       )
     )
-  )
+  })
+
+  /**
+   * The operator is chrome, not content.
+   *
+   * Who you are is already in the top bar; repeating it as the only row in a
+   * directory of participants says nothing and makes an empty platform look
+   * populated. The list is the people this panel exists to oversee.
+   */
+  const people = (event) => {
+    if (event.id === `user:${state.address}`) return
+    drawPerson(event)
+    show(dom.listEmpty, !dom.list.children.length)
+  }
 
   const users = await state.directory.map({ query: { role: { $exists: true } } }, people)
   const catalogue = await state.directory.map(
@@ -589,7 +629,10 @@ const mountAdmin = async () => {
     )
   )
 
-  show(dom.listEmpty, false)
+  // An honest empty state: nobody has joined the platform yet.
+  dom.listEmpty.textContent = "No clients or creators yet."
+  show(dom.listEmpty, !dom.list.children.length)
+
   return () => {
     users.unsubscribe?.()
     catalogue.unsubscribe?.()
