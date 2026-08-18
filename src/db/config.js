@@ -70,9 +70,15 @@ const MEMBER = { $in: ["user", "client", "creator"] }
  * cleanly back to `user` instead of sticking at a stale tier.
  */
 export const GOVERNANCE_RULES = [
-  // Onboarding gate: a declared side, held still for a moment, opens the door.
-  { if: { role: "guest", requestedSide: { $in: ["client", "creator"] } }, offsetTimestamp: 3000, then: { assignRole: "user" } },
-  // Floor: onboarded, no side.
+  // Onboarding: every guest crosses, side or no side.
+  //
+  // This rule used to require a declared side, and that was a bug with a very
+  // quiet failure: anyone who signed in without answering the onboarding
+  // dialog matched no rule at all and stayed `guest` forever, with nothing on
+  // screen to explain why. A trust system may take its time promoting someone;
+  // it must never strand them in silence.
+  { if: { role: "guest" }, offsetTimestamp: 3000, then: { assignRole: "user" } },
+  // Floor: onboarded, no side declared yet.
   { if: { role: MEMBER }, then: { assignRole: "user" } },
   // The two sides. Lateral, so neither overrides the other — only the floor.
   { if: { role: MEMBER, requestedSide: "creator" }, then: { assignRole: "creator" } },

@@ -931,4 +931,17 @@ export const render = async () => {
 
   const teardown = await VIEWS[state.side]()
   if (typeof teardown === "function") unmount = teardown
+
+  // A guest is waiting on somebody else's key, and has no way to know it.
+  // Saying so is the difference between "this is broken" and "this is how it
+  // works" — the engine only runs while a superadmin has a window open.
+  if (state.role === "guest") {
+    dom.content.prepend(
+      elt("p", {
+        className: "note",
+        textContent:
+          "You are a guest: read-only until a superadmin signs your role. The engine that grants it runs in a superadmin's window — if none is open, nothing is signed and this does not change.",
+      })
+    )
+  }
 }
