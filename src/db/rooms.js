@@ -10,7 +10,7 @@
  * transport boundary, it is its own authorization domain. Each one therefore
  * ships the same constitution, and each runs its own governance cycle.
  */
-import { gdb } from "genosdb"
+import { loadGdb } from "./engine.js"
 import { DIRECTORY_ROOM, GOVERNANCE_RULES, smOptions, tenantRoom } from "./config.js"
 
 /** @type {Map<string, Promise<object>>} Room name → the instance opening it. */
@@ -27,7 +27,7 @@ const open = new Map()
  * @returns {Promise<object>} The GenosDB instance.
  */
 const openRoom = (name, options = {}) => {
-  if (!open.has(name)) open.set(name, gdb(name, { rtc: true, ...options }))
+  if (!open.has(name)) open.set(name, loadGdb().then((gdb) => gdb(name, { rtc: true, ...options })))
   return open.get(name)
 }
 

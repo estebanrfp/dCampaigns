@@ -42,6 +42,9 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   await alice.page.locator("#task-title").fill("Post a thread")
   await alice.page.locator("#task-req").fill("Three posts.")
   await alice.page.getByRole("button", { name: "Create" }).click()
+  // Wait for the task to land before moving on: without this the next steps
+  // race the render, and the campaign view may not be on screen yet.
+  await expect(alice.page.getByText("Post a thread")).toBeVisible()
 
   const bob = await openPeer(browser, BOB)
   await declareSide(bob.page, "creator", "Bob")
@@ -79,7 +82,9 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   // Bob's own key, his own GenosDB instance, no interface in the way.
   const attack = await bob.page.evaluate(
     async ([room, id, mnemonic, superAdmin, owner, password]) => {
-      const { gdb } = await import("/node_modules/genosdb/dist/index.js")
+      // The same engine the app loads, from the same path: a tampered client is
+      // ordinary code with the user's key, not a different library.
+      const { gdb } = await import("/genosdb/index.js")
       const db = await gdb(room, {
         rtc: true,
         password,
