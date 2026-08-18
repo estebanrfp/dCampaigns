@@ -9,3 +9,7 @@ dist-ssr/
 
 # Session config, not project config
 .claude/
+
+# Playwright
+test-results/
+playwright-report/

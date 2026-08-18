@@ -1,0 +1,23 @@
+{
+  "name": "dcampaigns",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Paid creator campaigns on X, as a distributed application over a signed graph",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "genosdb": "^0.25.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "vite": "^7.1.2"
+  },
+  "author": "Esteban Fuster Pozzi (@estebanrfp)",
+  "license": "MIT"
+}

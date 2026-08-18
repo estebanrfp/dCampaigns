@@ -1,0 +1,105 @@
+/**
+ * Test helpers: a peer is a browser context, never a tab.
+ *
+ * The identities are the ecosystem's canonical throwaway ones, so a test reads
+ * like the demo it mirrors.
+ */
+import { expect } from "@playwright/test"
+
+export const SUPERADMIN = {
+  name: "Superadmin",
+  mnemonic: "panic now afford carbon donate lecture drift excite collect essay stuff prosper",
+  address: "0xbfDe0eCEC5332Fd86D2570085571D6051Df098dA",
+}
+
+export const ALICE = {
+  name: "Alice",
+  mnemonic: "prosper fossil kitten crisp view spread jeans shield prosper myself awake usage",
+  address: "0x3546D4BA0ac3bfDea3F1511F82a078DDdb3F4931",
+}
+
+export const BOB = {
+  name: "Bob",
+  mnemonic: "salmon grant recall neutral banner glow pluck divert cactus theory rally ship captain shaft cactus",
+  address: "0x8089C0480139d85D82c1E20eeF08a77EF8cD7DEC",
+}
+
+/**
+ * One namespace per run.
+ *
+ * Fresh contexts give each peer a clean disk, but the graph also lives on the
+ * wire: any peer still holding yesterday's state would replicate it straight
+ * back in. A room nobody else knows about is what makes a run actually start
+ * from nothing.
+ */
+export const RUN = `t${Date.now().toString(36)}`
+
+/** The app, scoped to this run's network. */
+export const APP_URL = `/?room=${RUN}`
+
+/**
+ * Open a fresh peer: its own context, its own storage, its own identity.
+ *
+ * @param {import('@playwright/test').Browser} browser
+ * @param {{mnemonic: string}} identity
+ * @returns {Promise<{page: import('@playwright/test').Page, context: import('@playwright/test').BrowserContext}>}
+ */
+export const openPeer = async (browser, identity) => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await page.goto(APP_URL)
+  await signIn(page, identity)
+  return { page, context }
+}
+
+/**
+ * Enter a client space from the sidebar.
+ *
+ * Entering restarts the app — every room must exist before the identity door,
+ * or the new Security Manager clears the active signer — so the session has to
+ * be opened again on the way back in. That is the cost of a mnemonic session;
+ * a passkey would resume silently.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} slug
+ * @param {{mnemonic: string}} identity
+ */
+export const enterSpace = async (page, slug, identity) => {
+  await page.locator(`.item[data-id="${slug}"]`).click()
+  await signIn(page, identity)
+  await expect(page.locator("#status-meta")).toContainText(slug)
+}
+
+/**
+ * Sign in through the identity door, the way a person does.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{mnemonic: string}} identity
+ */
+export const signIn = async (page, identity) => {
+  const modal = page.locator("#identity-modal")
+  await expect(modal).toBeVisible()
+  await page.locator("#mnemonic-input").fill(identity.mnemonic)
+  await page.getByRole("button", { name: "Login with mnemonic" }).click()
+  await expect(modal).toBeHidden()
+}
+
+/**
+ * Declare a side in the onboarding dialog — the newcomer's single write.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {'creator'|'client'} side
+ * @param {string} displayName
+ */
+export const declareSide = async (page, side, displayName) => {
+  const modal = page.locator("#onboarding-modal")
+  await expect(modal).toBeVisible()
+  // Scoped to the dialog: the top bar carries buttons with the same names.
+  await modal.locator(side === "client" ? "#pick-client" : "#pick-creator").click()
+  await page.locator("#display-name").fill(displayName)
+  await modal.getByRole("button", { name: "Continue" }).click()
+  await expect(modal).toBeHidden()
+}
+
+/** The live role shown in the top bar — the thing governance changes. */
+export const roleOf = (page) => page.locator("#session-role")
