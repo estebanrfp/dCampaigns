@@ -99,6 +99,37 @@ const mountCreator = async () => {
   return renderTasks()
 }
 
+/**
+ * Wait for a node to exist, rather than deciding it does not.
+ *
+ * In a replicated graph, "not found" and "has not arrived yet" look identical
+ * the moment you ask. A creator handed a code seconds ago is exactly the person
+ * whose peer has not synced the catalogue entry, and telling them the space
+ * does not exist would be both wrong and discouraging.
+ *
+ * The reactive read fires as soon as the node lands; the timeout is what turns
+ * a genuine absence into an answer.
+ *
+ * @param {object} db
+ * @param {string} id
+ * @param {number} [timeout=8000]
+ * @returns {Promise<object|null>}
+ */
+const awaitNode = async (db, id, timeout = 8000) => {
+  const { result, unsubscribe } = await db.get(id, () => {})
+  if (result) return unsubscribe?.(), result
+
+  return new Promise((resolve) => {
+    const done = (value) => {
+      clearTimeout(timer)
+      unsubscribe?.()
+      resolve(value)
+    }
+    const timer = setTimeout(() => done(null), timeout)
+    db.get(id, (node) => node && done(node))
+  })
+}
+
 /** Ask for the room code. It travels out of band — never through the graph. */
 const renderJoinForm = () => {
   clear(dom.content)
@@ -122,7 +153,7 @@ const renderJoinForm = () => {
             const password = $("join-password").value
             if (!slug || !password) return toast("Both fields are required", "error")
 
-            const { result } = await state.directory.get(`client:${slug}`)
+            const result = await awaitNode(state.directory, `client:${slug}`)
             if (!result) return toast("No such space in the directory", "error")
 
             // The keyring is written first: entering restarts the app, and a

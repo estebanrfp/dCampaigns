@@ -34,6 +34,18 @@
               <path d="M8 21h8M12 17v4" />
             </svg>
           </button>
+          <!--
+            Upgrade to a passkey. Offered while a session is open and not yet
+            protected: a mnemonic session lives in memory and dies on every
+            reload, so without this the only people who ever get a passkey are
+            the ones who took it at sign-up.
+          -->
+          <button id="passkey-upgrade-btn" class="icon-btn hidden" title="Protect this identity with a passkey" aria-label="Protect this identity with a passkey">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="9" r="4" />
+              <path d="M14.5 13.5 21 20M18 17l2-2M15.5 14.5l2-2" />
+            </svg>
+          </button>
           <button id="logout-btn" class="icon-btn hidden" title="Logout" aria-label="Logout">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />

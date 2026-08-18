@@ -23,6 +23,7 @@ const el = {
   passkeyLogin: $("passkey-login-btn"),
   login: $("login-btn"),
   demoLogin: $("demo-login-btn"),
+  passkeyUpgrade: $("passkey-upgrade-btn"),
   onboarding: $("onboarding-modal"),
   pickCreator: $("pick-creator"),
   pickClient: $("pick-client"),
@@ -108,13 +109,35 @@ export const initIdentity = async (db, onSession) => {
     }
   }
 
-  el.passkeyProtect.onclick = async () => {
+  /**
+   * Registering a passkey succeeds before it is durable.
+   *
+   * The security state changes — and the UI reacts — a moment before the
+   * encrypted key material and the resume flag are stored. Reloading inside
+   * that window loses the passkey that was just created, silently, and the next
+   * visit asks for the phrase again. So nothing is announced until the SM says
+   * a registration exists on this origin.
+   */
+  const registrationIsDurable = async () => {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (await db.sm.hasExistingWebAuthnRegistration()) return true
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return false
+  }
+
+  const protectWithPasskey = async () => {
     try {
-      if (!(await db.sm.protectCurrentIdentityWithWebAuthn())) toast("Passkey registration cancelled", "error")
+      if (!(await db.sm.protectCurrentIdentityWithWebAuthn())) return toast("Passkey registration cancelled", "error")
+      if (!(await registrationIsDurable())) return toast("The passkey did not finish saving — try again", "error")
+      toast("Passkey saved — this device will sign you in from now on", "success")
     } catch {
       toast("Could not register the passkey", "error")
     }
   }
+
+  el.passkeyProtect.onclick = protectWithPasskey
+  el.passkeyUpgrade.onclick = protectWithPasskey
 
   el.passkeyLogin.onclick = async () => {
     try {
@@ -180,6 +203,10 @@ export const initIdentity = async (db, onSession) => {
   const onSecurityStateChange = async (state) => {
     renderIdentityModal(db, state)
     onSession(state)
+
+    // The upgrade is offered exactly while it is useful: a live session that
+    // still depends on a phrase nobody wants to retype at every room.
+    show(el.passkeyUpgrade, state.isActive && PASSKEYS_AVAILABLE && !state.isWebAuthnProtected)
 
     if (!state.isActive) {
       if (!el.modal.open) el.modal.showModal()

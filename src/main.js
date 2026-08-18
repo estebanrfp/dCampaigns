@@ -99,6 +99,7 @@ let unwatchRole = null
  */
 const watchSelf = async (address) => {
   let introduced = false
+  let drawn = null // what the view was last built from
 
   const { unsubscribe } = await directory.get(`user:${address}`, async (node) => {
     state.role = node?.value?.role ?? "guest"
@@ -120,6 +121,14 @@ const watchSelf = async (address) => {
         toast("Could not announce you in this space", "error")
       }
     }
+
+    // Only rebuild when something the view is built from actually changed.
+    // This node is written by governance and by the keyring, and redrawing on
+    // every touch tears down whatever the user was in the middle of — a form
+    // half filled in vanishes because a role was re-signed elsewhere.
+    const signature = `${state.role}|${state.keyring.map((entry) => entry.slug).join(",")}`
+    if (signature === drawn) return
+    drawn = signature
 
     render()
   })
