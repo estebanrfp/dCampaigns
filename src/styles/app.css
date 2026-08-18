@@ -277,6 +277,69 @@ body {
   color: var(--warn);
 }
 
+/* ── Stats: numbers first, then the shape of them ──────────────────── */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.stat-value {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* One bar, three outcomes. The track is the whole; the fills are the parts. */
+.bar {
+  display: flex;
+  height: 6px;
+  margin-bottom: var(--space-2);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.bar-fill[data-verdict="approved"] {
+  background: var(--ok);
+}
+.bar-fill[data-verdict="rejected"] {
+  background: var(--danger);
+}
+.bar-fill[data-verdict="pending"] {
+  background: var(--warn);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legend-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+.note {
+  margin: var(--space-5) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 /* ── Fields ────────────────────────────────────────────────────────── */
 
 input[type="text"],

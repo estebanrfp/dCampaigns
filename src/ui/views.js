@@ -18,6 +18,7 @@ import {
   submitWork,
   tasksOfCampaign,
 } from "../db/model.js"
+import { computeStats, humanDuration } from "../db/stats.js"
 import { state } from "../state/app.js"
 import { addr, clear, elt, liveList, when } from "./dom.js"
 import { show, toast } from "./feedback.js"
@@ -158,7 +159,8 @@ const renderTasks = async () => {
       elt(
         "div",
         { className: "row" },
-        elt("button", { textContent: "My submissions", onclick: () => renderSubmissions() })
+        elt("button", { textContent: "My submissions", onclick: () => renderSubmissions() }),
+        elt("button", { textContent: "My stats", onclick: () => renderStats() })
       ),
       list
     )
@@ -220,6 +222,109 @@ const renderSubmitForm = (taskId, task) => {
       })
     )
   )
+}
+
+// ── Stats ────────────────────────────────────────────────────────────
+
+/** A single figure: the number first, what it counts underneath. */
+const stat = (value, label) =>
+  elt(
+    "div",
+    { className: "card" },
+    elt("div", { className: "stat-value", textContent: value }),
+    elt("div", { className: "stat-label", textContent: label })
+  )
+
+/** One bar carrying the three outcomes, sized by share. */
+const outcomeBar = ({ approved, rejected, pending }) => {
+  const total = approved + rejected + pending
+  if (!total) return null
+
+  const fill = (count, verdict) =>
+    count
+      ? elt("span", {
+          className: "bar-fill",
+          dataset: { verdict },
+          attrs: { style: `width:${(count / total) * 100}%` },
+        })
+      : null
+
+  const key = (verdict, count, label) =>
+    elt(
+      "span",
+      {},
+      elt("span", { className: "legend-key bar-fill", dataset: { verdict } }),
+      document.createTextNode(`${label} ${count}`)
+    )
+
+  return elt(
+    "div",
+    {},
+    elt("div", { className: "bar" }, fill(approved, "approved"), fill(rejected, "rejected"), fill(pending, "pending")),
+    elt(
+      "div",
+      { className: "legend" },
+      key("approved", approved, "approved"),
+      key("rejected", rejected, "rejected"),
+      key("pending", pending, "pending")
+    )
+  )
+}
+
+/**
+ * The state of the room, as numbers.
+ *
+ * A reviewer sees the whole room; a creator sees their own work. Both are
+ * derived from the same signed operations, which is what lets a creator check
+ * the figures against their own replica instead of taking them on trust.
+ *
+ * Recomputed from one subscription: any change in the room re-runs the
+ * queries. There is no analytics service to be out of date.
+ */
+const renderStats = async () => {
+  unmount?.()
+  unmount = null
+
+  const reviewing = can("approve")
+  const scope = reviewing ? {} : { creator: state.address }
+
+  const draw = async () => {
+    const s = await computeStats(state.tenant, scope)
+    clear(dom.content)
+
+    const figures = elt(
+      "div",
+      { className: "stat-grid" },
+      reviewing ? stat(s.campaigns, "campaigns") : null,
+      reviewing ? stat(`${s.tasksDelivered}/${s.tasks}`, "tasks delivered") : null,
+      stat(s.submissions, "submissions"),
+      stat(s.pending, reviewing ? "awaiting your review" : "awaiting review"),
+      stat(s.approvalRate == null ? "—" : `${Math.round(s.approvalRate * 100)}%`, "approval rate"),
+      stat(humanDuration(s.medianWait), "median time to decide"),
+      reviewing ? stat(s.creators, "creators delivering") : null
+    )
+
+    dom.content.append(
+      section(
+        reviewing ? `Stats · ${state.tenantSlug}` : "My stats",
+        elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
+        figures,
+        outcomeBar(s),
+        // Say what is not here, so nobody reads a number that does not exist.
+        elt("p", {
+          className: "note",
+          textContent:
+            "Computed on this device from signed operations — every figure can be checked against your own replica. Reach and engagement are not here: they live on X, and no peer can verify a post.",
+        })
+      )
+    )
+  }
+
+  await draw()
+
+  // One subscription over the room: anything that lands re-runs the figures.
+  const { unsubscribe } = await state.tenant.map({}, () => draw())
+  unmount = unsubscribe
 }
 
 // ── Submissions & verdicts ───────────────────────────────────────────
@@ -421,7 +526,8 @@ const renderCampaigns = async () => {
       elt(
         "div",
         { className: "row" },
-        elt("button", { textContent: "Submissions", onclick: () => renderSubmissions() })
+        elt("button", { textContent: "Submissions", onclick: () => renderSubmissions() }),
+        elt("button", { textContent: "Stats", onclick: () => renderStats() })
       ),
       list
     )
