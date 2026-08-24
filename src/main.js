@@ -1,5 +1,5 @@
 /**
- * dCampaigns — paid creator campaigns on X, as a distributed application.
+ * dCampaigns — commissioning creative work, as a distributed application.
  *
  * What to read here, and where:
  *   · openDirectory()                      — the public graph: identities, roles, catalogue
