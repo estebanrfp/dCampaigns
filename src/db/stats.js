@@ -7,10 +7,11 @@
  * these figures against their own replica. An approval rate is not what the
  * platform says it is; it is what the signatures add up to.
  *
- * What is deliberately absent: reach, impressions, engagement. Those live on X,
- * not in this graph, and no peer-to-peer mesh can verify a tweet. They arrive
- * with the collector or not at all — inventing them here would be a number
- * nobody could stand behind.
+ * What is deliberately absent: reach, impressions, engagement. Those live on
+ * whatever platform the work was published to, not in this graph, and no
+ * peer-to-peer mesh can verify a number it cannot see. They arrive with an
+ * integration or not at all — inventing them here would be a figure nobody
+ * could stand behind.
  */
 
 /**

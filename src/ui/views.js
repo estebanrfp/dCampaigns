@@ -250,7 +250,7 @@ const renderSubmitForm = (taskId, task) => {
   dom.content.append(
     section(
       `Submit · ${task.title}`,
-      field("post-url", "Post URL", "https://x.com/…"),
+      field("post-url", "Link to the work", "https://…"),
       field("proof", "Proof", "screenshot link, metrics, anything verifiable"),
       elt("button", {
         className: "primary",
@@ -370,7 +370,7 @@ const renderStats = async () => {
         elt("p", {
           className: "note",
           textContent:
-            "Computed on this device from signed operations — every figure can be checked against your own replica. Reach and engagement are not here: they live on X, and no peer can verify a post.",
+            "Computed on this device from signed operations — every figure can be checked against your own replica. Audience figures are not here: they live wherever the work was published, and no peer can verify them.",
         })
       )
     )
