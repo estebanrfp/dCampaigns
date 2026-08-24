@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Paid creator campaigns on X, as a distributed application over a signed graph",
+  "description": "Commissioning creative work — brief, assign, deliver, decide — as a distributed application over a signed graph",
   "scripts": {
     "sync-engine": "rm -rf public/genosdb && mkdir -p public && cp -R node_modules/genosdb/dist public/genosdb",
     "dev": "pnpm sync-engine && vite",

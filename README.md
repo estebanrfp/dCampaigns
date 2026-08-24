@@ -5,6 +5,14 @@ approving it — built as a **distributed application**: no backend, no server t
 trust, and no account to create. The data lives in a signed graph replicated
 between the peers that use it.
 
+**[Try it →](https://estebanrfp.github.io/dCampaigns/)**
+
+The page is the whole application: nothing runs behind it. Open it in two
+browsers and they become peers of each other — the second is not talking to a
+server, it is talking to the first. Sign in as the operator with one click, or
+create an identity and declare a side; a role has to be signed by a superadmin,
+so keep the operator's window open while a newcomer is promoted.
+
 > **Status: working prototype.** The three sides, the campaign → task →
 > delivery → verdict cycle, named assignment, live stats and passkey login all
 > run. Covered by a Playwright suite where every simulated peer is its own
