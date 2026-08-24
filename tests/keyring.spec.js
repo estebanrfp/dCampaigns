@@ -38,31 +38,45 @@ test("a role assignment does not take the room keys with it", async ({ browser }
   await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
   await expect(alice.page.locator(`.item[data-id="${SPACE}"]`)).toBeVisible()
 
-  // Force the node the engine rewrites to be rewritten: a demotion and a
-  // promotion, driven by clearing and restoring the declared side.
-  await alice.page.evaluate(
-    async ([room, mnemonic, superAdmin]) => {
+  // Rewrite the node the engine owns, the way the engine once did. A naive
+  // `assignRole` rebuilt `user:<address>` from `{ role, ethAddress, … }` alone,
+  // dropping every application field on it — and, back when the keyring was one
+  // of those fields, the room passwords with them. This reproduces that rewrite
+  // directly, from a second instance holding Alice's key, then reads the keyring
+  // where it lives now: a node of its own, which the rewrite cannot reach.
+  //
+  // Driving it through governance instead would hang on cross-peer meshing (the
+  // promotion is signed in the operator's window, and a throwaway peer may never
+  // connect to it) and fight `keepSide`, which now restores a cleared side. The
+  // property under test is structural — two nodes, not one — not a matter of who
+  // signs, so the throwaway shares this context's OPFS and the assertions read
+  // the graph directly.
+  const survived = await alice.page.evaluate(
+    async ([room, mnemonic, superAdmin, addr]) => {
       const { gdb } = await import("/genosdb/index.js")
       const db = await gdb(room, { rtc: true, sm: { superAdmins: [superAdmin], acls: true } })
-      const identity = await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
-      const id = `user:${identity.address}`
-      const { result } = await db.get(id)
-      // Drop the side: last-match-wins sends the role back to the floor, and
-      // the engine rewrites the node to do it.
-      const { requestedSide, ...rest } = result?.value ?? {}
-      await db.put(rest, id)
+      await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
+      const id = `user:${addr}`
+
+      const before = (await db.get(`keyring:${addr}`)).result?.value?.rooms
+      // Collapse the user node to bare role fields: the dangerous rewrite.
+      await db.put({ role: "user", ethAddress: addr }, id)
+      const userAfter = Object.keys((await db.get(id)).result?.value ?? {})
+      const after = (await db.get(`keyring:${addr}`)).result?.value?.rooms
+
+      return { before: !!before, userAfter, after: !!after }
     },
-    [
-      `dcampaigns-${RUN}`,
-      ALICE.mnemonic,
-      SUPERADMIN.address,
-    ]
+    [`dcampaigns-${RUN}`, ALICE.mnemonic, SUPERADMIN.address, ALICE.address]
   )
 
-  // The role moves — proof the engine rewrote the user node.
-  await expect(roleOf(alice.page)).toHaveText("user", { timeout: 25_000 })
+  // The rewrite really did strip the user node down…
+  expect(survived.before, "the keyring existed before the rewrite").toBe(true)
+  expect(survived.userAfter, "the user node was collapsed to bare role fields").not.toContain("displayName")
+  // …and the keyring, living in its own node, came through it untouched.
+  expect(survived.after, "the keyring survived the user-node rewrite").toBe(true)
 
-  // And the key is still there. That is the whole point.
+  // And on Alice's own screen the key is still there: the sidebar reads the
+  // keyring node, which the rewrite never touched.
   await expect(alice.page.locator(`.item[data-id="${SPACE}"]`)).toBeVisible()
 
   await operator.context.close()

@@ -15,7 +15,7 @@
  */
 import { forgetPendingRoom, openDirectory, openTenant, pendingRoom } from "./db/rooms.js"
 import { SUPERADMIN } from "./db/config.js"
-import { ensureRole, introduceInRoom, migrateKeyring, readKeyring } from "./db/model.js"
+import { ensureRole, introduceInRoom, keepSide, migrateKeyring, readKeyring } from "./db/model.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
 import { render } from "./ui/views.js"
@@ -113,6 +113,13 @@ const watchSelf = async (address) => {
     state.role = node?.value?.role ?? "guest"
     el.sessionRole.textContent = state.role
     el.sessionRole.dataset.role = state.role
+
+    // A promotion written from an incomplete replica can drop the declared
+    // side, which leaves this identity a tier below what it asked for. Put it
+    // back from the copy governance never touches.
+    keepSide(directory, address).catch((error) =>
+      console.error("[dCampaigns] could not restore the declared side:", error)
+    )
 
     // An identity is a stranger in every graph it has not written to. Present
     // it in the open room once, carrying the same declaration the directory

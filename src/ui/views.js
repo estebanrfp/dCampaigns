@@ -16,7 +16,11 @@ import {
   createTask,
   creatorsInRoom,
   decideSubmission,
+  ownSubmission,
+  ownVerdict,
   rememberRoom,
+  rememberSubmission,
+  rememberVerdict,
   submitWork,
   tasksOfCampaign,
 } from "../db/model.js"
@@ -253,13 +257,18 @@ const renderSubmitForm = (taskId, task) => {
         textContent: "Submit",
         onclick: async () => {
           try {
-            await submitWork(state.tenant, {
+            const postUrl = $("post-url").value.trim()
+            const proof = $("proof").value.trim()
+            const id = await submitWork(state.tenant, {
               taskId,
-              postUrl: $("post-url").value.trim(),
-              proof: $("proof").value.trim(),
+              postUrl,
+              proof,
               creator: state.address,
               reviewer: state.keyring.find((k) => k.slug === state.tenantSlug)?.owner,
             })
+            // Keep our own copy off the graph, so a moderator's rewrite never
+            // reaches the one screen the creator trusts: their own.
+            rememberSubmission(state.tenantSlug, id, { postUrl, proof })
             toast("Submitted — the delivery is yours and stays yours", "success")
             await render()
           } catch (error) {
@@ -386,6 +395,13 @@ const renderStats = async () => {
 const submissionCard = (id, value, reviewing) => {
   const slot = elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: "pending" })
 
+  // On your own deliveries, the copy you kept off the graph wins over the shared
+  // node: an operator who rewrote it cannot change what you delivered on your
+  // own screen.
+  const own = value.creator === state.address ? ownSubmission(state.tenantSlug, id) : null
+  const postUrl = own?.postUrl ?? value.postUrl
+  const proof = own?.proof ?? value.proof
+
   const actions = reviewing
     ? elt(
         "div",
@@ -405,9 +421,11 @@ const submissionCard = (id, value, reviewing) => {
 
   return elt(
     "article",
-    { className: "card", dataset: { submission: id } },
-    elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" }),
-    elt("p", { className: "item-excerpt", textContent: value.proof }),
+    // The creator rides on the card so a verdict can be judged against it the
+    // moment it is painted: a self-signed approval is refused without a lookup.
+    { className: "card", dataset: { submission: id, creator: value.creator } },
+    elt("div", { className: "item-title", textContent: postUrl || "(no link)" }),
+    elt("p", { className: "item-excerpt", textContent: proof }),
     elt("div", { className: "row spread" }, addr(state.tenant, value.creator), slot),
     actions
   )
@@ -435,19 +453,43 @@ const decide = async (submissionId, submission, verdict) => {
       reviewer: state.address,
       creator: submission.creator,
     })
+    // Keep our own copy off the graph, where the network cannot rewrite it.
+    rememberVerdict(state.tenantSlug, submissionId, verdict)
     toast(`Submission ${verdict}`, verdict === "approved" ? "success" : "info")
   } catch (error) {
     toast(error.message ?? "Could not record the decision", "error")
   }
 }
 
-/** Paint a verdict onto the card it belongs to, if that card is on screen. */
+/**
+ * Paint a verdict onto the card it belongs to, if that card is on screen.
+ *
+ * Two checks stand between the graph and the pixel, because the shared approval
+ * node is not, on its own, trustworthy (see `rememberVerdict`):
+ *
+ *   1. Nobody decides on their own work. A verdict whose reviewer is the
+ *      creator of the delivery is void — this is the first thing a rejected
+ *      creator forges, signing an approval of their own submission — and it is
+ *      refused here on every peer, whatever the transport merged in.
+ *   2. Your own decision wins. If this device made the call, the copy it kept
+ *      off the graph is the truth; the shared node is only a mirror, and a
+ *      mirror can be flipped by whoever syncs the newest timestamp.
+ */
 const paintVerdict = (root, value) => {
   const card = root.querySelector(`[data-submission="${CSS.escape(value.submissionId)}"]`)
   const slot = card?.querySelector(".verdict")
   if (!slot) return
-  slot.dataset.verdict = value.verdict
-  slot.textContent = value.note ? `${value.verdict} · ${value.note}` : value.verdict
+
+  // (1) A self-signed verdict is not a verdict.
+  if (card.dataset.creator && value.reviewer === card.dataset.creator) return
+
+  // (2) The reviewer's own copy overrides anything the network merged in.
+  const mine = ownVerdict(state.tenantSlug, value.submissionId)
+  const verdict = mine ?? value.verdict
+  const note = mine && mine !== value.verdict ? "" : value.note
+
+  slot.dataset.verdict = verdict
+  slot.textContent = note ? `${verdict} · ${note}` : verdict
 }
 
 /**

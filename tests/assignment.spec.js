@@ -1,8 +1,8 @@
 /**
  * Assignment: work asked of a named creator.
  *
- * Fred put "campaign assignments" in the core, and it is the piece that turns a
- * board of open tasks into a workflow. Here it is a signed statement by the
+ * Assignment is the piece that turns a board of open tasks into a workflow, and
+ * it belongs in the core of any campaign tool. Here it is a signed statement by the
  * client — *this is the person I asked* — which is worth being precise about:
  * it buys attribution, not prevention. The room is shared, so a member could
  * still sign a delivery for a task asked of someone else; the graph would

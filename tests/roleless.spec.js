@@ -54,11 +54,12 @@ test("an identity whose node carries no role is repaired and promoted", async ({
   }, [`dcampaigns-${RUN}`, SUPERADMIN.address, BOB.address])
   console.log("NODE AFTER:", JSON.stringify(after))
 
-  // Note: it lands on the base tier, not on `creator`. Assigning a role
-  // rewrites the user node and drops the application fields — `requestedSide`
-  // among them — so the rule for the side has nothing left to match. That is a
-  // separate defect, tracked on its own; what this test guards is that the
-  // identity is no longer unreachable.
+  // It reaches the base tier, not its declared side. The promotion is written
+  // from the superadmin's replica, and when that replica is behind, the write
+  // lands without `requestedSide` — so the rule for the side has nothing left
+  // to match. Not fixed here: the app cannot make another peer's replica
+  // complete. What this guards is that the identity is no longer unreachable.
+  await expect(roleOf(page)).toHaveText("user", { timeout: 40_000 })
 
 
   await context.close()

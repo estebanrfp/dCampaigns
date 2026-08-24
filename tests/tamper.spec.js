@@ -104,7 +104,16 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
       }
 
       try {
+        // Forgery A — self-signed: Bob approves his own delivery, naming
+        // himself the reviewer. Refused by every honest peer on sight: nobody
+        // decides on their own work.
         await db.put({ type: "approval", submissionId: id, verdict: "approved", note: "self-approved", reviewer: db.sm.getActiveEthAddress(), decidedAt: Date.now() }, `approval:${id}`)
+        // Forgery B — impersonation: Bob writes the client's own address as the
+        // reviewer, with a newer clock, to overwrite the honest verdict by
+        // last-write-wins on any peer that reconciles state instead of ops.
+        // The client's device draws its verdict from the copy it kept off the
+        // graph, so the flip never reaches the one screen that decides.
+        await db.put({ type: "approval", submissionId: id, verdict: "approved", note: "impersonated", reviewer: owner, decidedAt: Date.now() + 1 }, `approval:${id}`)
         const { result } = await db.get(`approval:${id}`)
         return { threw: null, localVerdict: result?.value?.verdict ?? null, peers }
       } catch (error) {

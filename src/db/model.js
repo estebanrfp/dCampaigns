@@ -77,10 +77,45 @@ export const createClientSpace = (db, { slug, name, owner }) =>
  */
 export const ensureRole = async (db, address) => {
   const id = `user:${address}`
-  const { result } = await db.get(id)
-  if (result?.value?.role) return false
-  await db.put({ role: "guest", ...result?.value }, id)
+  const existing = await awaitNode(db, id)
+  if (existing?.value?.role) return false
+
+  // Spread what is there — and only after *waiting* for it to be there. An
+  // earlier version read the node the instant the session opened, got `null`
+  // because it had not loaded yet, and wrote a bare `{ role: "guest" }` over a
+  // perfectly good profile: the same mistake this repair exists to undo, made
+  // one layer up. In a replicated graph, reading before the data arrives is
+  // indistinguishable from reading an empty graph, and writing on that reading
+  // destroys.
+  await db.put({ role: "guest", ...existing?.value }, id)
   return true
+}
+
+/**
+ * Wait for a node to exist, rather than concluding it does not.
+ *
+ * "Not found" and "has not arrived yet" are the same answer the moment you ask
+ * a replicated graph. The reactive read fires as soon as the node lands; the
+ * timeout is what turns a genuine absence into an answer.
+ *
+ * @param {object} db
+ * @param {string} id
+ * @param {number} [timeout=5000]
+ * @returns {Promise<object|null>}
+ */
+export const awaitNode = async (db, id, timeout = 5000) => {
+  const { result, unsubscribe } = await db.get(id, () => {})
+  if (result) return unsubscribe?.(), result
+
+  return new Promise((resolve) => {
+    const done = (value) => {
+      clearTimeout(timer)
+      unsubscribe?.()
+      resolve(value)
+    }
+    const timer = setTimeout(() => done(null), timeout)
+    db.get(id, (node) => node && done(node))
+  })
 }
 
 /**
@@ -155,10 +190,125 @@ const keyringId = (address) => `keyring:${address}`
 export const rememberRoom = async (db, address, room) => {
   const keyring = await readKeyring(db, address)
   const next = [...keyring.filter((entry) => entry.slug !== room.slug), room]
+  const { result } = await db.get(keyringId(address))
   return db.sm.acls.set(
-    { type: "keyring", owner: address, rooms: await db.sm.encryptDataForCurrentUser(next) },
+    {
+      ...result?.value,
+      type: "keyring",
+      owner: address,
+      rooms: await db.sm.encryptDataForCurrentUser(next),
+    },
     keyringId(address)
   )
+}
+
+/**
+ * Keep our own copy of the declared side, and put it back when it goes missing.
+ *
+ * The governance engine runs on the superadmin's device and writes from *their*
+ * replica: `assignRole` spreads `existingUserData`, so if the node has not fully
+ * synced there yet, the promotion is written from an incomplete copy and — being
+ * newer — overwrites the good one. `requestedSide` disappears, the rule for the
+ * side stops matching, and the identity is stuck one tier below where it asked
+ * to be. Nothing is corrupt; a race was simply lost.
+ *
+ * So the declaration is kept in the node that is ours (governance only rewrites
+ * `user:<address>`) and re-seeded whenever the public one has lost it.
+ *
+ * @param {object} db - The directory instance.
+ * @param {string} address
+ * @returns {Promise<boolean>} whether the side had to be restored.
+ */
+export const keepSide = async (db, address) => {
+  const key = `dcampaigns.side.${address}`
+  const { result: user } = await db.get(`user:${address}`)
+  const declared = user?.value?.requestedSide
+
+  // The public node still has it: keep the local copy in step and stop.
+  //
+  // This copy is deliberately not a graph node. A newcomer is a `guest` with no
+  // write permission, so the very moment the declaration most needs backing up
+  // is the moment it cannot be written anywhere in the graph — and by the time
+  // the role arrives, the value has already been lost. Local storage has no
+  // such gate.
+  if (declared) {
+    localStorage.setItem(key, declared)
+    return false
+  }
+
+  const remembered = localStorage.getItem(key)
+  if (!remembered || !user?.value) return false
+
+  await db.put({ ...user.value, requestedSide: remembered }, `user:${address}`)
+  return true
+}
+
+/**
+ * The reviewer keeps their own copy of every verdict, off the graph.
+ *
+ * A verdict is a claim by the person who signed it — but the graph node that
+ * carries it is not, on its own, tamper-proof. Node-level ACLs are enforced on
+ * the live op-by-op path only; state reconciliation (`deltaSync` /
+ * `fullStateSync`) merges by clock alone, with no ownership check. So a peer
+ * running modified code can broadcast a newer timestamp for an approval id and
+ * overwrite its value on every peer it syncs with — the owner's included.
+ *
+ * The defence is not to trust the shared node for your own decisions. The
+ * reviewer mirrors each verdict to local storage, which lives outside the
+ * replicated graph where no peer can reach it, and the client's own view is
+ * drawn from that copy. The network can flip the mirror; it cannot flip what
+ * you decided on your own device.
+ *
+ * @param {string} slug - The room the decision was made in.
+ * @param {string} submissionId
+ * @param {'approved'|'rejected'} verdict
+ */
+export const rememberVerdict = (slug, submissionId, verdict) => {
+  if (slug && submissionId) localStorage.setItem(`dcampaigns.verdict.${slug}.${submissionId}`, verdict)
+}
+
+/**
+ * This device's own recorded verdict for a submission, or null if it made none.
+ *
+ * @param {string} slug
+ * @param {string} submissionId
+ * @returns {string|null}
+ */
+export const ownVerdict = (slug, submissionId) =>
+  slug && submissionId ? localStorage.getItem(`dcampaigns.verdict.${slug}.${submissionId}`) : null
+
+/**
+ * The creator keeps their own copy of what they delivered, off the graph.
+ *
+ * A submission is the creator's node, but "owned" is not "immutable": the same
+ * reconciliation path that can flip a verdict can rewrite a delivery, and an
+ * operator granted `delete` to moderate also holds `write` — the ACL model
+ * folds the two together. So the creator mirrors the delivery to local storage
+ * and renders their own copy on their own submissions. What you delivered is
+ * yours to display, whatever a peer merged into the shared node.
+ *
+ * @param {string} slug
+ * @param {string} submissionId
+ * @param {{postUrl: string, proof: string}} content
+ */
+export const rememberSubmission = (slug, submissionId, content) => {
+  if (slug && submissionId) localStorage.setItem(`dcampaigns.submission.${slug}.${submissionId}`, JSON.stringify(content))
+}
+
+/**
+ * This device's own copy of a submission it delivered, or null.
+ *
+ * @param {string} slug
+ * @param {string} submissionId
+ * @returns {{postUrl: string, proof: string}|null}
+ */
+export const ownSubmission = (slug, submissionId) => {
+  if (!slug || !submissionId) return null
+  try {
+    return JSON.parse(localStorage.getItem(`dcampaigns.submission.${slug}.${submissionId}`)) || null
+  } catch {
+    return null
+  }
 }
 
 /**
