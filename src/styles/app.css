@@ -577,6 +577,10 @@ dialog.help {
   color: var(--text-secondary);
 }
 
+.help-body p + p {
+  margin-top: var(--space-3);
+}
+
 .help-body ul,
 .help-body ol {
   margin: 0;
