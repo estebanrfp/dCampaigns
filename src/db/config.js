@@ -92,11 +92,16 @@ export const GOVERNANCE_RULES = [
  * keeps one deployment's network from mixing with another's — a staging build,
  * or a test run that must not inherit yesterday's graph.
  *
- * Development only: the published app always uses the bare names.
+ * It answers in the published build too, and deliberately. A suite run against
+ * a deployment has to write somewhere, and without this it would write into the
+ * room real visitors are looking at — test identities and invented campaigns in
+ * the middle of a live demo. It also gives anyone a private instance to try:
+ * `?room=anything` is a graph nobody else is in.
+ *
+ * Absent the parameter the names stay bare, so the demo everyone shares is
+ * still the one at the plain URL.
  */
-const NAMESPACE = import.meta.env?.DEV
-  ? (new URLSearchParams(location.search).get("room") ?? "")
-  : ""
+const NAMESPACE = new URLSearchParams(location.search).get("room") ?? ""
 
 const scope = NAMESPACE ? `-${NAMESPACE}` : ""
 

@@ -3,9 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dCampaigns — paid creator campaigns on a signed graph</title>
-    <link rel="stylesheet" href="/src/styles/tokens.css" />
-    <link rel="stylesheet" href="/src/styles/app.css" />
+    <title>dCampaigns — commissioning creative work on a signed graph</title>
+    <!-- Relative, never rooted: a leading slash drops the sub-path a project
+         site is served from, and the page loads nothing. -->
+    <link rel="stylesheet" href="src/styles/tokens.css" />
+    <link rel="stylesheet" href="src/styles/app.css" />
   </head>
   <body>
     <div class="layout">
@@ -93,7 +95,7 @@
     -->
     <dialog id="identity-modal">
       <h2 class="modal-title">dCampaigns</h2>
-      <p class="modal-hint">Paid creator campaigns, with approvals anyone can verify.</p>
+      <p class="modal-hint">Commissioned work, with approvals anyone can verify.</p>
 
       <div class="mnemonic-field">
         <textarea id="mnemonic-input" placeholder="Enter your 12-word mnemonic phrase to log in or recover…"></textarea>
@@ -144,6 +146,6 @@
 
     <div id="toasts" class="toast-stack" role="status" aria-live="polite" popover="manual"></div>
 
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="src/main.js"></script>
   </body>
 </html>

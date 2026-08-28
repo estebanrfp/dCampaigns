@@ -25,7 +25,7 @@
  */
 
 /** Where the engine comes from — written down once, used by the app and the suite. */
-export const ENGINE_URL = "https://cdn.jsdelivr.net/npm/genosdb@latest/dist/index.js"
+export const ENGINE_URL = "https://cdn.jsdelivr.net/npm/genosdb@latest/dist/index.min.js"
 
 /** @type {Promise<Function>|null} */
 let engine = null

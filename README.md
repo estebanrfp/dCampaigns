@@ -84,20 +84,28 @@ can carry on its own.
 
 ## Stack
 
-- **[GenosDB](https://genosdb.com)** — the graph, the sync, the identity and the roles. One dependency.
-- **Vite** + vanilla JavaScript (ES2022+), matching the rest of the ecosystem's apps.
+- **[GenosDB](https://genosdb.com)** — the graph, the sync, the identity and the roles. The only runtime dependency, loaded from the CDN.
+- Vanilla JavaScript (ES2022+), native ES modules, **no build step** — the same zero-build shape as the rest of the ecosystem's examples. What is in the repository is what runs.
 
 ## Getting started
 
+Any static server will do; the files are served as they are.
+
 ```bash
-pnpm install
-pnpm dev
+python3 -m http.server 5173
 ```
 
 Run the suite — every peer in its own browser context:
 
 ```bash
-pnpm exec playwright test
+pnpm install && pnpm test
+```
+
+And against the published site, which is where the sub-path and the cross-origin
+engine are actually exercised:
+
+```bash
+TARGET_URL=https://estebanrfp.github.io/dCampaigns/ pnpm test
 ```
 
 ## Author

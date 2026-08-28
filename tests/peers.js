@@ -44,7 +44,10 @@ export const BOB = {
 export const RUN = `t${Date.now().toString(36)}`
 
 /** The app, scoped to this run's network. */
-export const APP_URL = `/?room=${RUN}`
+// Relative on purpose: a leading slash resolves against the origin and drops
+// the sub-path a project site is served from, so `TARGET_URL` runs would have
+// loaded a different site entirely and reported the app as broken.
+export const APP_URL = `?room=${RUN}`
 
 /**
  * Open a fresh peer: its own context, its own storage, its own identity.
