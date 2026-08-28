@@ -3,19 +3,16 @@
  *
  * GenosDB resolves its optional modules at runtime, relative to itself
  * (`import.meta.url`): `sm.min.js` reaches for `sm-acls.min.js` and
- * `sm-gov.min.js` only when ACLs and governance are actually configured.
- * A bundler cannot see those imports, so it rewrites the entry point, emits it
- * under a hashed name, and leaves the siblings behind — the build succeeds and
- * then 404s at runtime for exactly the two modules this app is built on.
+ * `sm-gov.min.js` only when ACLs and governance are actually configured. From
+ * the CDN that resolution lands in the CDN's own directory, where every sibling
+ * is served next to it, so the engine arrives whole and the app carries no copy
+ * of it.
  *
- * Verified on this project: a production build served `sm.min-<hash>.js` fine
- * and answered 404 for `sm-acls.min.js` and `sm-gov.min.js`. Node ownership and
- * role promotion would have failed silently in production while working in dev.
- *
- * Loading from the CDN sidesteps that: `import.meta.url` then points at the CDN
- * directory, where every sibling is served next to it. `@vite-ignore` keeps the
- * import opaque, so the bundler never inspects it and the app carries no copy
- * of the engine at all.
+ * Worth stating because the alternative was tried here: bundling it rewrites the
+ * entry point, emits it under a hashed name and leaves the siblings behind. The
+ * build looked clean and answered 404 for exactly those two modules — node
+ * ownership and role promotion failing silently in production while working in
+ * development. There is no bundler now, and no copy to keep in step either.
  *
  * The version is deliberately floating. This app exists to show what GenosDB
  * can carry, so it should demonstrate the engine as it is today rather than as
@@ -36,4 +33,4 @@ let engine = null
  * @returns {Promise<Function>} GenosDB's `gdb(name, options)`.
  */
 export const loadGdb = () =>
-  (engine ??= import(/* @vite-ignore */ ENGINE_URL).then((module) => module.gdb))
+  (engine ??= import(ENGINE_URL).then((module) => module.gdb))
