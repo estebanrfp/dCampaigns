@@ -67,18 +67,34 @@ export const openPeer = async (browser, identity) => {
 /**
  * Enter a client space from the sidebar.
  *
- * Entering restarts the app — every room must exist before the identity door,
- * or the new Security Manager clears the active signer — so the session has to
- * be opened again on the way back in. That is the cost of a mnemonic session;
- * a passkey would resume silently.
+ * A space is a view over the one shared graph, so entering is a click — no
+ * password, no restart, and the session stays put.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} slug
- * @param {{mnemonic: string}} identity
  */
-export const enterSpace = async (page, slug, identity) => {
-  await page.locator(`.item[data-id="${slug}"]`).click()
-  await signIn(page, identity)
+export const enterSpace = async (page, slug) => {
+  const item = page.locator(`.item[data-id="client:${slug}"]`)
+  await item.waitFor() // it arrives by sync — wait for the catalogue entry to land
+  await item.click()
+  await expect(page.locator("#status-meta")).toContainText(slug)
+}
+
+/**
+ * Create a client space and land in it.
+ *
+ * No access code and no reload: the entry is signed as the caller's on
+ * creation, and entering it is a filter over the one shared graph.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} slug
+ * @param {string} name
+ */
+export const createSpace = async (page, slug, name) => {
+  await page.getByRole("button", { name: "Client", exact: true }).first().click()
+  await page.locator("#space-slug").fill(slug)
+  await page.locator("#space-name").fill(name)
+  await page.getByRole("button", { name: "Create" }).click()
   await expect(page.locator("#status-meta")).toContainText(slug)
 }
 

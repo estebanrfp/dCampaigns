@@ -1,6 +1,6 @@
 /**
- * The constitution: who may sign what, how a newcomer earns a side, and how the
- * graph is split between tenants.
+ * The constitution: who may sign what, how a newcomer earns a side, and the one
+ * graph everything lives in.
  *
  * Everything here is declared once and shipped to every peer. Roles are not a
  * server-side check — they are signed grants the engine verifies locally, so
@@ -105,22 +105,18 @@ const NAMESPACE = new URLSearchParams(location.search).get("room") ?? ""
 
 const scope = NAMESPACE ? `-${NAMESPACE}` : ""
 
-/** The public graph: identities, roles and the catalogue of client spaces. */
-export const DIRECTORY_ROOM = `dcampaigns${scope}`
-
 /**
- * A client's private graph.
+ * The one graph: identities, roles, the catalogue, and every space's work.
  *
- * Tenant isolation is by transport, not by permission: each client gets its own
- * room, and a room is only joinable by a peer holding its password — signaling
- * is encrypted with it, so without the password the handshake never completes
- * and no replica is ever exchanged. An ACL denying `read` would not do this:
- * in a shared room the data still reaches every peer's disk.
- *
- * @param {string} slug - The client's stable identifier.
- * @returns {string} The room (and database) name for that client.
+ * One database per project — the engine's own recommendation. A space is not a
+ * transport boundary here: it is a catalogue node owned by its client, and
+ * every node inside it carries an owner of its own. Since genosdb 0.27.x that
+ * authorship is enforced on every apply path — live, delta and full state — so
+ * what keeps one client's work theirs is the signature on it, not distance.
+ * What one identity keeps to itself travels as an encrypted field only its
+ * mnemonic-derived key opens (`encryptDataForCurrentUser`).
  */
-export const tenantRoom = (slug) => `dcampaigns${scope}-c-${slug}`
+export const ROOM = `dcampaigns${scope}`
 
 /** Shared SM configuration — the same constitution in every room. */
 export const smOptions = {

@@ -9,10 +9,9 @@
  * delivered and when.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, SUPERADMIN, declareSide, enterSpace, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, SUPERADMIN, createSpace, declareSide, enterSpace, openPeer, roleOf } from "./peers.js"
 
 const SPACE = "acme"
-const CODE = "launch-week-2026"
 
 test("a creator delivers and the client's approval is a separate signed record", async ({ browser }) => {
   const operator = await openPeer(browser, SUPERADMIN)
@@ -22,14 +21,8 @@ test("a creator delivers and the client's approval is a separate signed record",
   await declareSide(alice.page, "client", "Acme Inc.")
   await expect(roleOf(alice.page)).toHaveText("client")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
-  await alice.page.locator("#space-slug").fill(SPACE)
-  await alice.page.locator("#space-name").fill("Acme Inc.")
-  await alice.page.locator("#space-password").fill(CODE)
-  await alice.page.getByRole("button", { name: "Create" }).click()
-  await signIn(alice.page, ALICE) // creating enters the room, which restarts the app
+  await createSpace(alice.page, SPACE, "Acme Inc.")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
   await alice.page.locator("#new-btn").click()
   await alice.page.locator("#campaign-title").fill("Launch week")
   await alice.page.locator("#campaign-brief").fill("Announce 2.0 across X.")
@@ -46,10 +39,7 @@ test("a creator delivers and the client's approval is a separate signed record",
   await declareSide(bob.page, "creator", "Bob")
   await expect(roleOf(bob.page)).toHaveText("creator")
 
-  await bob.page.locator("#join-slug").fill(SPACE)
-  await bob.page.locator("#join-password").fill(CODE)
-  await bob.page.getByRole("button", { name: "Join" }).click()
-  await signIn(bob.page, BOB) // joining restarts the app too
+  await enterSpace(bob.page, SPACE)
 
   // The task written by the client reaches the creator's device.
   await expect(bob.page.getByText("Post a thread")).toBeVisible()

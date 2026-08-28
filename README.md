@@ -53,19 +53,26 @@ different claims by two different people, each standing on its own.
 
 The suite tests that adversarially, not politely: a rejected creator runs a
 tampered client — their own key, a second database instance, no interface in the
-way — and signs an approval of their own work. Two rules keep it out. Nobody
-decides on their own delivery, so a verdict whose reviewer is the creator is
-refused on sight. And each party keeps its own copy of what it signed outside
-the replicated graph, so the screen that matters is drawn from a record no peer
-can reach. The forgery propagates; the client's dashboard still reads
-`rejected`.
+way — and signs an approval of their own work. It reaches connected peers and
+changes nothing. The engine re-checks authorship wherever state is applied, so
+the node the client stored is never rewritten; and a verdict whose reviewer is
+the delivery's own creator is refused on sight. The test reads the client's
+graph directly, with no interface in between: the forgery propagates, and the
+stored verdict still reads `rejected`.
 
-## Isolation is transport, not permission
+## Isolation is authorship
 
-Each client works in its own room, joinable only by a peer holding its access
-code — the code encrypts the signaling, so without it the handshake never
-completes and no replica is ever exchanged. An ACL denying `read` would not do
-this: in a shared room the data still reaches every peer's disk.
+One graph carries the whole marketplace — one database per project, the engine's
+own recommendation. A client space is a catalogue node the engine stamps as its
+creator's, and every campaign, task, delivery and verdict inside it carries an
+owner of its own, re-checked by every peer on every path state can arrive by:
+live operations and reconciliation alike. What keeps one client's work theirs is
+the signature on it, not distance from anyone else.
+
+Everything replicates to everyone, and that is worth stating rather than hiding:
+a signature protects integrity and authorship, not secrecy. What one identity
+keeps to itself travels as a field encrypted for its own key, opaque on every
+other peer.
 
 ## Stats without a service
 

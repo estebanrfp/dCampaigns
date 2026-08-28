@@ -8,19 +8,14 @@
  * hidden button is a courtesy, and the signature on the operation is the
  * security.
  */
-import { enterRoomAndReload } from "../db/rooms.js"
 import {
   assignTask,
+  awaitNode,
   createCampaign,
   createClientSpace,
   createTask,
-  creatorsInRoom,
+  creators,
   decideSubmission,
-  ownSubmission,
-  ownVerdict,
-  rememberRoom,
-  rememberSubmission,
-  rememberVerdict,
   submitWork,
   tasksOfCampaign,
 } from "../db/model.js"
@@ -45,10 +40,9 @@ let unmount = null
 /**
  * The verbs the live role may sign, mirrored from the constitution.
  *
- * This reads the role held in the *directory*, which is the identity's side.
- * The room enforces its own copy — roles are stored per graph — so this only
- * decides what to draw; `executeWithPermission` on the tenant decides what may
- * be signed, and the peers decide what is accepted.
+ * One graph, one role: what governance signed on `user:<address>` is the same
+ * authority everywhere. This only decides what to draw; `executeWithPermission`
+ * decides what may be signed, and the peers decide what is accepted.
  */
 const can = (verb) =>
   ({
@@ -70,129 +64,93 @@ const field = (id, label, placeholder, type = "text") =>
     elt("input", { id, type, placeholder })
   )
 
+// ── Spaces ───────────────────────────────────────────────────────────
+
+/**
+ * Enter a space. No password and no reload: a space is a view over the shared
+ * graph, so entering one is a filter, not a connection.
+ *
+ * @param {string} slug
+ */
+const openSpace = (slug) => {
+  if (slug === state.space) return
+  state.space = slug
+  state.selected = null
+  render()
+}
+
+/** One catalogue entry in the sidebar. */
+const spaceItem = (value, excerpt) =>
+  elt(
+    "li",
+    {
+      className: "item",
+      attrs: { "aria-current": String(value.slug === state.space) },
+      onclick: () => openSpace(value.slug),
+    },
+    elt("div", { className: "item-title", textContent: value.name || value.slug }),
+    elt("div", { className: "item-excerpt", textContent: excerpt })
+  )
+
+/** Subscribe the sidebar to a catalogue query, keeping the empty state honest. */
+const spacesInSidebar = async (query, excerpt, emptyText) => {
+  clear(dom.list)
+  const draw = liveList(dom.list, ({ value }) => spaceItem(value, excerpt))
+  const subscription = await state.db.map(
+    { query, field: "createdAt", order: "desc" },
+    (event) => {
+      draw(event)
+      show(dom.listEmpty, !dom.list.children.length)
+    }
+  )
+  dom.listEmpty.textContent = emptyText
+  show(dom.listEmpty, !dom.list.children.length)
+  return subscription
+}
+
 // ── Creator ──────────────────────────────────────────────────────────
 
-/**
- * The creator's side: the rooms they hold a key to, and the tasks inside them.
- */
+/** The creator's side: the catalogue of spaces, and the tasks inside one. */
 const mountCreator = async () => {
-  dom.newBtn.title = "Join a client space"
-  dom.newBtn.disabled = !state.address
-  dom.newBtn.onclick = () => renderJoinForm()
+  dom.newBtn.title = "Spaces are created by clients"
+  dom.newBtn.disabled = true
+  dom.newBtn.onclick = null
 
-  clear(dom.list)
-  state.keyring.forEach((entry) =>
-    dom.list.append(
-      elt(
-        "li",
-        {
-          className: "item",
-          dataset: { id: entry.slug },
-          attrs: { "aria-current": String(entry.slug === state.tenantSlug) },
-          onclick: () => enterRoom(entry),
-        },
-        elt("div", { className: "item-title", textContent: entry.slug }),
-        elt("div", { className: "item-excerpt", textContent: "Client space" })
-      )
-    )
+  const catalogue = await spacesInSidebar(
+    { type: "client" },
+    "Client space",
+    "No spaces yet. A client creates the first one."
   )
-  show(dom.listEmpty, !state.keyring.length)
-  dom.listEmpty.textContent = "No spaces yet. Join one with its code."
 
-  if (!state.tenant) return renderJoinForm()
-  return renderTasks()
+  const content = state.space ? await renderTasks() : renderLobby()
+  return () => {
+    catalogue.unsubscribe?.()
+    if (typeof content === "function") content()
+  }
 }
 
-/**
- * Wait for a node to exist, rather than deciding it does not.
- *
- * In a replicated graph, "not found" and "has not arrived yet" look identical
- * the moment you ask. A creator handed a code seconds ago is exactly the person
- * whose peer has not synced the catalogue entry, and telling them the space
- * does not exist would be both wrong and discouraging.
- *
- * The reactive read fires as soon as the node lands; the timeout is what turns
- * a genuine absence into an answer.
- *
- * @param {object} db
- * @param {string} id
- * @param {number} [timeout=8000]
- * @returns {Promise<object|null>}
- */
-const awaitNode = async (db, id, timeout = 8000) => {
-  const { result, unsubscribe } = await db.get(id, () => {})
-  if (result) return unsubscribe?.(), result
-
-  return new Promise((resolve) => {
-    const done = (value) => {
-      clearTimeout(timer)
-      unsubscribe?.()
-      resolve(value)
-    }
-    const timer = setTimeout(() => done(null), timeout)
-    db.get(id, (node) => node && done(node))
-  })
-}
-
-/** Ask for the room code. It travels out of band — never through the graph. */
-const renderJoinForm = () => {
+/** Nothing selected yet: say what the catalogue is instead of showing a void. */
+const renderLobby = () => {
   clear(dom.content)
   dom.content.append(
     section(
-      "Join a client space",
+      "Pick a space",
       elt("p", {
         className: "hint",
         textContent:
-          "The code is the room password: without it the handshake never completes, so the space's data never reaches this device.",
-      }),
-      field("join-slug", "Space", "acme"),
-      field("join-password", "Access code", "shared with you by the client", "password"),
-      elt(
-        "button",
-        {
-          className: "primary",
-          textContent: "Join",
-          onclick: async () => {
-            const slug = $("join-slug").value.trim()
-            const password = $("join-password").value
-            if (!slug || !password) return toast("Both fields are required", "error")
-
-            const result = await awaitNode(state.directory, `client:${slug}`)
-            if (!result) return toast("No such space in the directory", "error")
-
-            // The keyring is written first: entering restarts the app, and a
-            // room whose code was never saved would be lost on the way in.
-            const entry = { slug, password, owner: result.value.owner }
-            await rememberRoom(state.directory, state.address, entry)
-            enterRoom(entry)
-          },
-        }
-      )
+          "Every client space lives in the shared catalogue. Open one to see its tasks — what keeps each client's work theirs is the signature on every node, verified by every peer.",
+      })
     )
   )
 }
 
-/**
- * Enter a tenant room.
- *
- * This restarts the app rather than opening the database in place: every room
- * has to exist before the identity door, or the new Security Manager clears the
- * signer this session is already using. See the note in `db/rooms.js`.
- *
- * @param {{slug: string, password: string, owner: string}} entry
- */
-const enterRoom = (entry) => {
-  if (entry.slug === state.tenantSlug) return
-  enterRoomAndReload(entry)
-}
-
-/** Tasks in the open room, live. */
+/** Tasks in the open space, live. */
 const renderTasks = async () => {
   clear(dom.content)
   const list = elt("div", { className: "card-grid" })
   dom.content.append(
     section(
-      `Tasks · ${state.tenantSlug}`,
+      `Tasks · ${state.space}`,
       elt(
         "div",
         { className: "row" },
@@ -203,8 +161,8 @@ const renderTasks = async () => {
     )
   )
 
-  const { unsubscribe } = await state.tenant.map(
-    { query: { type: "task" }, field: "createdAt", order: "desc" },
+  const { unsubscribe } = await state.db.map(
+    { query: { type: "task", space: state.space }, field: "createdAt", order: "desc" },
     liveList(list, ({ id, value }) =>
       elt(
         "article",
@@ -214,7 +172,7 @@ const renderTasks = async () => {
         elt(
           "div",
           { className: "row spread" },
-          // A task asked of someone else is still visible — the room is shared
+          // A task asked of someone else is still visible — the graph is shared
           // and pretending otherwise would be theatre — but it is not yours.
           elt("span", {
             className: "stat-label",
@@ -222,7 +180,7 @@ const renderTasks = async () => {
               ? "open to anyone"
               : value.assignee === state.address
                 ? "asked of you"
-                : `asked of ${state.tenant.sm.abbrAddr(value.assignee)}`,
+                : `asked of ${state.db.sm.abbrAddr(value.assignee)}`,
           }),
           elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
         ),
@@ -259,16 +217,18 @@ const renderSubmitForm = (taskId, task) => {
           try {
             const postUrl = $("post-url").value.trim()
             const proof = $("proof").value.trim()
-            const id = await submitWork(state.tenant, {
+            // The reviewer is the space's owner — read from the catalogue
+            // entry, whose `owner` the engine stamped and every peer defends.
+            const entry = await awaitNode(state.db, `client:${state.space}`)
+            if (!entry) return toast("This space is missing from the catalogue", "error")
+            await submitWork(state.db, {
+              space: state.space,
               taskId,
               postUrl,
               proof,
               creator: state.address,
-              reviewer: state.keyring.find((k) => k.slug === state.tenantSlug)?.owner,
+              reviewer: entry.value.owner,
             })
-            // Keep our own copy off the graph, so a moderator's rewrite never
-            // reaches the one screen the creator trusts: their own.
-            rememberSubmission(state.tenantSlug, id, { postUrl, proof })
             toast("Submitted — the delivery is yours and stays yours", "success")
             await render()
           } catch (error) {
@@ -328,13 +288,13 @@ const outcomeBar = ({ approved, rejected, pending }) => {
 }
 
 /**
- * The state of the room, as numbers.
+ * The state of the space, as numbers.
  *
- * A reviewer sees the whole room; a creator sees their own work. Both are
+ * A reviewer sees the whole space; a creator sees their own work. Both are
  * derived from the same signed operations, which is what lets a creator check
  * the figures against their own replica instead of taking them on trust.
  *
- * Recomputed from one subscription: any change in the room re-runs the
+ * Recomputed from one subscription: any change in the space re-runs the
  * queries. There is no analytics service to be out of date.
  */
 const renderStats = async () => {
@@ -342,10 +302,10 @@ const renderStats = async () => {
   unmount = null
 
   const reviewing = can("approve")
-  const scope = reviewing ? {} : { creator: state.address }
+  const scope = reviewing ? { space: state.space } : { space: state.space, creator: state.address }
 
   const draw = async () => {
-    const s = await computeStats(state.tenant, scope)
+    const s = await computeStats(state.db, scope)
     clear(dom.content)
 
     const figures = elt(
@@ -362,7 +322,7 @@ const renderStats = async () => {
 
     dom.content.append(
       section(
-        reviewing ? `Stats · ${state.tenantSlug}` : "My stats",
+        reviewing ? `Stats · ${state.space}` : "My stats",
         elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
         figures,
         outcomeBar(s),
@@ -378,8 +338,8 @@ const renderStats = async () => {
 
   await draw()
 
-  // One subscription over the room: anything that lands re-runs the figures.
-  const { unsubscribe } = await state.tenant.map({}, () => draw())
+  // One subscription over the space: anything that lands re-runs the figures.
+  const { unsubscribe } = await state.db.map({ query: { space: state.space } }, () => draw())
   unmount = unsubscribe
 }
 
@@ -394,13 +354,6 @@ const renderStats = async () => {
  */
 const submissionCard = (id, value, reviewing) => {
   const slot = elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: "pending" })
-
-  // On your own deliveries, the copy you kept off the graph wins over the shared
-  // node: an operator who rewrote it cannot change what you delivered on your
-  // own screen.
-  const own = value.creator === state.address ? ownSubmission(state.tenantSlug, id) : null
-  const postUrl = own?.postUrl ?? value.postUrl
-  const proof = own?.proof ?? value.proof
 
   const actions = reviewing
     ? elt(
@@ -424,9 +377,9 @@ const submissionCard = (id, value, reviewing) => {
     // The creator rides on the card so a verdict can be judged against it the
     // moment it is painted: a self-signed approval is refused without a lookup.
     { className: "card", dataset: { submission: id, creator: value.creator } },
-    elt("div", { className: "item-title", textContent: postUrl || "(no link)" }),
-    elt("p", { className: "item-excerpt", textContent: proof }),
-    elt("div", { className: "row spread" }, addr(state.tenant, value.creator), slot),
+    elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" }),
+    elt("p", { className: "item-excerpt", textContent: value.proof }),
+    elt("div", { className: "row spread" }, addr(state.db, value.creator), slot),
     actions
   )
 }
@@ -441,20 +394,19 @@ const submissionCard = (id, value, reviewing) => {
  */
 const decide = async (submissionId, submission, verdict) => {
   try {
-    await state.tenant.sm.executeWithPermission("approve")
+    await state.db.sm.executeWithPermission("approve")
   } catch {
     return toast("Your role does not hold `approve`", "warning")
   }
   try {
-    await decideSubmission(state.tenant, {
+    await decideSubmission(state.db, {
+      space: state.space,
       submissionId,
       verdict,
       note: document.querySelector(`[data-note="${CSS.escape(submissionId)}"]`)?.value.trim() ?? "",
       reviewer: state.address,
       creator: submission.creator,
     })
-    // Keep our own copy off the graph, where the network cannot rewrite it.
-    rememberVerdict(state.tenantSlug, submissionId, verdict)
     toast(`Submission ${verdict}`, verdict === "approved" ? "success" : "info")
   } catch (error) {
     toast(error.message ?? "Could not record the decision", "error")
@@ -464,39 +416,30 @@ const decide = async (submissionId, submission, verdict) => {
 /**
  * Paint a verdict onto the card it belongs to, if that card is on screen.
  *
- * Two checks stand between the graph and the pixel, because the shared approval
- * node is not, on its own, trustworthy (see `rememberVerdict`):
- *
- *   1. Nobody decides on their own work. A verdict whose reviewer is the
- *      creator of the delivery is void — this is the first thing a rejected
- *      creator forges, signing an approval of their own submission — and it is
- *      refused here on every peer, whatever the transport merged in.
- *   2. Your own decision wins. If this device made the call, the copy it kept
- *      off the graph is the truth; the shared node is only a mirror, and a
- *      mirror can be flipped by whoever syncs the newest timestamp.
+ * The engine guarantees nobody rewrites a foreign node — on every sync path,
+ * since genosdb 0.27.x. What it cannot know is this app's convention that
+ * `approval:<submissionId>` is a deterministic id: a creator could CREATE that
+ * node first, own it, and thereby block — or fake — the verdict on their own
+ * work. So one check stands between the graph and the pixel: a verdict whose
+ * reviewer is the delivery's own creator is void, on every peer.
  */
 const paintVerdict = (root, value) => {
   const card = root.querySelector(`[data-submission="${CSS.escape(value.submissionId)}"]`)
   const slot = card?.querySelector(".verdict")
   if (!slot) return
 
-  // (1) A self-signed verdict is not a verdict.
+  // A self-signed verdict is not a verdict.
   if (card.dataset.creator && value.reviewer === card.dataset.creator) return
 
-  // (2) The reviewer's own copy overrides anything the network merged in.
-  const mine = ownVerdict(state.tenantSlug, value.submissionId)
-  const verdict = mine ?? value.verdict
-  const note = mine && mine !== value.verdict ? "" : value.note
-
-  slot.dataset.verdict = verdict
-  slot.textContent = note ? `${verdict} · ${note}` : verdict
+  slot.dataset.verdict = value.verdict
+  slot.textContent = value.note ? `${value.verdict} · ${value.note}` : value.verdict
 }
 
 /**
- * The deliveries in the open room.
+ * The deliveries in the open space.
  *
  * A reviewer sees every submission; a creator sees only their own — not as a
- * privacy boundary (the room replicates to both) but because a creator's own
+ * privacy boundary (the graph replicates to both) but because a creator's own
  * deliveries are the only ones they can act on.
  */
 const renderSubmissions = async () => {
@@ -514,9 +457,11 @@ const renderSubmissions = async () => {
     )
   )
 
-  const submissions = await state.tenant.map(
+  const submissions = await state.db.map(
     {
-      query: reviewing ? { type: "submission" } : { type: "submission", creator: state.address },
+      query: reviewing
+        ? { type: "submission", space: state.space }
+        : { type: "submission", space: state.space, creator: state.address },
       field: "submittedAt",
       order: "desc",
     },
@@ -525,7 +470,7 @@ const renderSubmissions = async () => {
 
   // Verdicts are their own nodes, so they get their own subscription and are
   // painted onto whichever cards are already on screen.
-  const verdicts = await state.tenant.map({ query: { type: "approval" } }, ({ value, action }) => {
+  const verdicts = await state.db.map({ query: { type: "approval", space: state.space } }, ({ value, action }) => {
     if (action !== "removed" && value) paintVerdict(list, value)
   })
 
@@ -543,31 +488,20 @@ const mountClient = async () => {
   dom.newBtn.disabled = !can("createCampaign")
   dom.newBtn.onclick = () => renderCampaignForm()
 
-  clear(dom.list)
-  const mine = state.keyring.filter((entry) => entry.owner === state.address)
-  mine.forEach((entry) =>
-    dom.list.append(
-      elt(
-        "li",
-        {
-          className: "item",
-          dataset: { id: entry.slug },
-          attrs: { "aria-current": String(entry.slug === state.tenantSlug) },
-          onclick: () => enterRoom(entry),
-        },
-        elt("div", { className: "item-title", textContent: entry.slug }),
-        elt("div", { className: "item-excerpt", textContent: "Your space" })
-      )
-    )
+  const mine = await spacesInSidebar(
+    { type: "client", owner: state.address },
+    "Your space",
+    "No spaces yet. Create one."
   )
-  show(dom.listEmpty, !mine.length)
-  dom.listEmpty.textContent = "No spaces yet. Create one."
 
-  if (!state.tenant) return renderSpaceForm()
-  return renderCampaigns()
+  const content = state.space ? await renderCampaigns() : renderSpaceForm()
+  return () => {
+    mine.unsubscribe?.()
+    if (typeof content === "function") content()
+  }
 }
 
-/** Create a client space: a catalogue entry, plus the room behind it. */
+/** Create a client space: a catalogue entry the engine stamps as yours. */
 const renderSpaceForm = () => {
   clear(dom.content)
   dom.content.append(
@@ -576,26 +510,22 @@ const renderSpaceForm = () => {
       elt("p", {
         className: "hint",
         textContent:
-          "The access code never reaches the directory — it is the room password, and a secret in a public graph is no secret. Share it with your creators yourself.",
+          "The entry is signed as yours the moment it is created — no other identity can rewrite it, on any peer. There is no access code: creators find the space in the catalogue, and every node inside it carries its author's signature.",
       }),
       field("space-slug", "Slug", "acme"),
       field("space-name", "Name", "Acme Inc."),
-      field("space-password", "Access code", "choose one", "password"),
       elt("button", {
         className: "primary",
         textContent: "Create",
         onclick: async () => {
           const slug = $("space-slug").value.trim()
-          const password = $("space-password").value
-          if (!slug || !password) return toast("Slug and access code are required", "error")
+          if (!slug) return toast("A slug is required", "error")
           try {
-            await createClientSpace(state.directory, {
+            await createClientSpace(state.db, {
               slug,
               name: $("space-name").value.trim() || slug,
-              owner: state.address,
             })
-            await rememberRoom(state.directory, state.address, { slug, password, owner: state.address })
-            enterRoom({ slug, password, owner: state.address })
+            openSpace(slug)
           } catch (error) {
             toast(error.message ?? "Could not create the space", "error")
           }
@@ -605,13 +535,13 @@ const renderSpaceForm = () => {
   )
 }
 
-/** Campaigns in the open room, live, each with its tasks one traversal away. */
+/** Campaigns in the open space, live, each with its tasks one traversal away. */
 const renderCampaigns = async () => {
   clear(dom.content)
   const list = elt("div", { className: "card-grid" })
   dom.content.append(
     section(
-      `Campaigns · ${state.tenantSlug}`,
+      `Campaigns · ${state.space}`,
       elt(
         "div",
         { className: "row" },
@@ -622,8 +552,8 @@ const renderCampaigns = async () => {
     )
   )
 
-  const { unsubscribe } = await state.tenant.map(
-    { query: { type: "campaign" }, field: "createdAt", order: "desc" },
+  const { unsubscribe } = await state.db.map(
+    { query: { type: "campaign", space: state.space }, field: "createdAt", order: "desc" },
     liveList(list, ({ id, value }) =>
       elt(
         "article",
@@ -675,15 +605,15 @@ const renderCampaign = async (campaignId, campaign) => {
     )
   )
 
-  const { results: creators } = await creatorsInRoom(state.tenant)
+  const { results } = await creators(state.db)
   const nameOf = new Map(
-    creators.map(({ id, value }) => [
+    results.map(({ id, value }) => [
       id.replace(/^user:/, ""),
-      value.displayName?.trim() || state.tenant.sm.abbrAddr(id.replace(/^user:/, "")),
+      value.displayName?.trim() || state.db.sm.abbrAddr(id.replace(/^user:/, "")),
     ])
   )
 
-  const { unsubscribe } = await tasksOfCampaign(state.tenant, campaignId, (event) =>
+  const { unsubscribe } = await tasksOfCampaign(state.db, campaignId, (event) =>
     liveList(list, ({ id, value }) =>
       elt(
         "article",
@@ -697,7 +627,7 @@ const renderCampaign = async (campaignId, campaign) => {
           elt("span", {
             className: "stat-label",
             textContent: value.assignee
-              ? `→ ${nameOf.get(value.assignee) ?? state.tenant.sm.abbrAddr(value.assignee)}`
+              ? `→ ${nameOf.get(value.assignee) ?? state.db.sm.abbrAddr(value.assignee)}`
               : "open to anyone",
           }),
           elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
@@ -714,7 +644,7 @@ const renderCampaign = async (campaignId, campaign) => {
   unmount = unsubscribe
 }
 
-/** Change who a task is asked of — or reopen it to the room. */
+/** Change who a task is asked of — or reopen it to the space. */
 const renderAssignForm = async (taskId, task, campaignId, campaign) => {
   unmount?.()
   const picker = await creatorPicker("assign-to", task.assignee)
@@ -734,11 +664,11 @@ const renderAssignForm = async (taskId, task, campaignId, campaign) => {
           textContent: "Save",
           onclick: async () => {
             try {
-              await state.tenant.sm.executeWithPermission("assign")
+              await state.db.sm.executeWithPermission("assign")
             } catch {
               return toast("Your role does not hold `assign`", "warning")
             }
-            await assignTask(state.tenant, taskId, $("assign-to").value || null)
+            await assignTask(state.db, taskId, $("assign-to").value || null)
             toast("Task assigned", "success")
             await renderCampaign(campaignId, campaign)
           },
@@ -749,7 +679,7 @@ const renderAssignForm = async (taskId, task, campaignId, campaign) => {
 }
 
 const renderCampaignForm = () => {
-  if (!state.tenant) return toast("Open a space first", "warning")
+  if (!state.space) return toast("Open a space first", "warning")
   clear(dom.content)
   dom.content.append(
     section(
@@ -761,14 +691,14 @@ const renderCampaignForm = () => {
         textContent: "Create",
         onclick: async () => {
           try {
-            await state.tenant.sm.executeWithPermission("createCampaign")
+            await state.db.sm.executeWithPermission("createCampaign")
           } catch {
             return toast("Your role does not hold `createCampaign`", "warning")
           }
-          await createCampaign(state.tenant, {
+          await createCampaign(state.db, {
+            space: state.space,
             title: $("campaign-title").value.trim(),
             brief: $("campaign-brief").value.trim(),
-            owner: state.address,
           })
           toast("Campaign created", "success")
           await render()
@@ -779,24 +709,23 @@ const renderCampaignForm = () => {
 }
 
 /**
- * A picker of the creators in this room.
+ * A picker of the creators on the platform.
  *
  * "Anyone" is a real choice, not a placeholder: an open task is how a client
  * puts work up for whoever gets to it first, and it is the default because a
  * client often does not know yet who should take it.
  *
  * @param {string} id - Element id.
- * @param {Array} creators - `user:<address>` nodes from the room.
  * @param {string|null} [selected]
  */
 const creatorPicker = async (id, selected = null) => {
   const select = elt("select", { id })
   select.append(elt("option", { value: "", textContent: "Anyone in this space" }))
 
-  // Live, not a snapshot: a creator who joins while this form is open has to
-  // appear in it. Reading the roster once means the one person the client was
-  // waiting for is the one who never shows up.
-  const { unsubscribe } = await state.tenant.map(
+  // Live, not a snapshot: a creator who declares their side while this form is
+  // open has to appear in it. Reading the roster once means the one person the
+  // client was waiting for is the one who never shows up.
+  const { unsubscribe } = await state.db.map(
     { query: { requestedSide: "creator" } },
     ({ id: nodeId, value, action }) => {
       const address = nodeId.replace(/^user:/, "")
@@ -804,7 +733,7 @@ const creatorPicker = async (id, selected = null) => {
 
       if (action === "removed") return existing?.remove()
 
-      const label = value.displayName?.trim() || state.tenant.sm.abbrAddr(address)
+      const label = value.displayName?.trim() || state.db.sm.abbrAddr(address)
       if (existing) return (existing.textContent = label)
 
       const option = elt("option", { value: address, textContent: label })
@@ -836,13 +765,14 @@ const renderTaskForm = async (campaignId, campaign) => {
       picker.node,
       elt("p", {
         className: "note",
-        textContent: "Creators appear here as they join the space with its access code.",
+        textContent: "Creators appear here as they declare their side on the platform.",
       }),
       elt("button", {
         className: "primary",
         textContent: "Create",
         onclick: async () => {
-          await createTask(state.tenant, {
+          await createTask(state.db, {
+            space: state.space,
             campaignId,
             title: $("task-title").value.trim(),
             requirements: $("task-req").value.trim(),
@@ -859,9 +789,9 @@ const renderTaskForm = async (campaignId, campaign) => {
 // ── Admin ────────────────────────────────────────────────────────────
 
 /**
- * The operator's side: the public directory, which is all an operator can see
- * without holding a room's key. That limit is the design, not a gap — a room
- * whose code nobody handed over stays closed to the platform too.
+ * The operator's side: the people on the platform and the catalogue of spaces.
+ * The operator arbitrates roles; the work inside a space is its members' own,
+ * each node defended by its author's signature.
  */
 const mountAdmin = async () => {
   dom.newBtn.disabled = true
@@ -891,14 +821,14 @@ const mountAdmin = async () => {
         { className: "row spread" },
         elt("span", {
           className: "item-title",
-          textContent: value.displayName?.trim() || state.directory.sm.abbrAddr(address),
+          textContent: value.displayName?.trim() || state.db.sm.abbrAddr(address),
         }),
         elt("span", { className: "role-tag", dataset: { role }, textContent: role })
       ),
       elt(
         "div",
         { className: "row spread" },
-        addr(state.directory, address),
+        addr(state.db, address),
         waiting
           ? elt("span", {
               className: "verdict",
@@ -923,8 +853,8 @@ const mountAdmin = async () => {
     show(dom.listEmpty, !dom.list.children.length)
   }
 
-  const users = await state.directory.map({ query: { role: { $exists: true } } }, people)
-  const catalogue = await state.directory.map(
+  const users = await state.db.map({ query: { role: { $exists: true } } }, people)
+  const catalogue = await state.db.map(
     { query: { type: "client" }, field: "createdAt", order: "desc" },
     liveList(spaces, ({ value }) =>
       elt(
@@ -932,7 +862,7 @@ const mountAdmin = async () => {
         { className: "card" },
         elt("div", { className: "item-title", textContent: value.name }),
         elt("div", { className: "item-excerpt", textContent: value.slug }),
-        addr(state.directory, value.owner)
+        addr(state.db, value.owner)
       )
     )
   )
@@ -960,9 +890,9 @@ export const render = async () => {
     button.setAttribute("aria-current", String(button.dataset.side === state.side))
   )
 
-  dom.statusMeta.textContent = state.tenantSlug
-    ? `${state.tenantSlug} · isolated room`
-    : "directory · public graph"
+  dom.statusMeta.textContent = state.space
+    ? `${state.space} · client space`
+    : "catalogue · one shared graph"
 
   if (!state.address) {
     clear(dom.list)
@@ -974,7 +904,7 @@ export const render = async () => {
   const teardown = await VIEWS[state.side]()
   if (typeof teardown === "function") unmount = teardown
 
-  // A guest is waiting on somebody else's key, and has no way to know it.
+  // A guest is waiting on somebody else's signature, and has no way to know it.
   // Saying so is the difference between "this is broken" and "this is how it
   // works" — the engine only runs while a superadmin has a window open.
   if (state.role === "guest") {

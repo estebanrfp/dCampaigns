@@ -13,10 +13,9 @@
  * who can rewrite what is the one thing this product sells.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, createSpace, declareSide, enterSpace, openPeer, roleOf } from "./peers.js"
 
 const SPACE = "moderation"
-const CODE = "code-8821"
 
 test("what the operator can do to a delivery it did not make", async ({ browser }) => {
   const operator = await openPeer(browser, SUPERADMIN)
@@ -25,14 +24,8 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
   await declareSide(alice.page, "client", "Acme Inc.")
   await expect(roleOf(alice.page)).toHaveText("client")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
-  await alice.page.locator("#space-slug").fill(SPACE)
-  await alice.page.locator("#space-name").fill("Acme Inc.")
-  await alice.page.locator("#space-password").fill(CODE)
-  await alice.page.getByRole("button", { name: "Create" }).click()
-  await signIn(alice.page, ALICE)
+  await createSpace(alice.page, SPACE, "Acme Inc.")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
   await alice.page.locator("#new-btn").click()
   await alice.page.locator("#campaign-title").fill("Launch week")
   await alice.page.locator("#campaign-brief").fill("Announce 2.0.")
@@ -47,10 +40,7 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
   const bob = await openPeer(browser, BOB)
   await declareSide(bob.page, "creator", "Bob")
   await expect(roleOf(bob.page)).toHaveText("creator")
-  await bob.page.locator("#join-slug").fill(SPACE)
-  await bob.page.locator("#join-password").fill(CODE)
-  await bob.page.getByRole("button", { name: "Join" }).click()
-  await signIn(bob.page, BOB)
+  await enterSpace(bob.page, SPACE)
 
   await expect(bob.page.getByText("Post a thread")).toBeVisible()
   await bob.page.getByRole("button", { name: "Submit work" }).click()
@@ -65,9 +55,9 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
 
   // The operator, from its own instance, tries to rewrite what Bob delivered.
   const attempt = await operator.page.evaluate(
-    async ([room, id, mnemonic, superAdmin, owner, password, engineUrl]) => {
+    async ([room, id, mnemonic, superAdmin, engineUrl]) => {
       const { gdb } = await import(engineUrl)
-      const db = await gdb(room, { rtc: true, password, sm: { superAdmins: [superAdmin, owner], acls: true } })
+      const db = await gdb(room, { rtc: true, sm: { superAdmins: [superAdmin], acls: true } })
       await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
 
       const deadline = Date.now() + 20_000
@@ -86,7 +76,7 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
         return { peers, threw: error.message }
       }
     },
-    [`dcampaigns-${RUN}-c-${SPACE}`, submissionId, SUPERADMIN.mnemonic, SUPERADMIN.address, ALICE.address, CODE, ENGINE_URL]
+    [`dcampaigns-${RUN}`, submissionId, SUPERADMIN.mnemonic, SUPERADMIN.address, ENGINE_URL]
   )
 
   console.log("operator rewrite attempt:", JSON.stringify(attempt))

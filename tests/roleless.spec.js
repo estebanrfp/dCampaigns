@@ -2,7 +2,7 @@
  * The identity governance cannot see.
  *
  * Observed in real use, and confirmed by reading the live graph: a node holding
- * `displayName`, `requestedSide` and `keyring` — and **no `role`** — while fresh
+ * `displayName` and `requestedSide` — and **no `role`** — while fresh
  * accounts were promoted normally.
  *
  * A rule matching `{ role: "guest" }` cannot reach a node without that field.
@@ -29,7 +29,7 @@ test("an identity whose node carries no role is repaired and promoted", async ({
       const db = await gdb(room, { rtc: true, sm: { superAdmins: [superAdmin], acls: true } })
       const identity = await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
       await db.put(
-        { displayName: "estebanrfp", requestedSide: "creator", keyring: "opaque" },
+        { displayName: "estebanrfp", requestedSide: "creator" },
         `user:${identity.address}`
       )
       const { result } = await db.get(`user:${identity.address}`)

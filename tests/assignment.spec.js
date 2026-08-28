@@ -9,10 +9,9 @@
  * record exactly who did it, and the client rejects it.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, SUPERADMIN, createSpace, declareSide, enterSpace, openPeer, roleOf } from "./peers.js"
 
 const SPACE = "assign"
-const CODE = "code-7731"
 
 test("a task asked of one creator is not deliverable by another", async ({ browser }) => {
   const operator = await openPeer(browser, SUPERADMIN)
@@ -21,14 +20,8 @@ test("a task asked of one creator is not deliverable by another", async ({ brows
   await declareSide(alice.page, "client", "Acme Inc.")
   await expect(roleOf(alice.page)).toHaveText("client")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
-  await alice.page.locator("#space-slug").fill(SPACE)
-  await alice.page.locator("#space-name").fill("Acme Inc.")
-  await alice.page.locator("#space-password").fill(CODE)
-  await alice.page.getByRole("button", { name: "Create" }).click()
-  await signIn(alice.page, ALICE)
+  await createSpace(alice.page, SPACE, "Acme Inc.")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
   await alice.page.locator("#new-btn").click()
   await alice.page.locator("#campaign-title").fill("Launch week")
   await alice.page.locator("#campaign-brief").fill("Announce 2.0.")
@@ -38,13 +31,10 @@ test("a task asked of one creator is not deliverable by another", async ({ brows
   const bob = await openPeer(browser, BOB)
   await declareSide(bob.page, "creator", "Bob")
   await expect(roleOf(bob.page)).toHaveText("creator")
-  await bob.page.locator("#join-slug").fill(SPACE)
-  await bob.page.locator("#join-password").fill(CODE)
-  await bob.page.getByRole("button", { name: "Join" }).click()
-  await signIn(bob.page, BOB)
+  await enterSpace(bob.page, SPACE)
 
-  // The client can now pick him by name — the room knows who joined it,
-  // because every identity introduces itself in each graph it enters.
+  // The client can now pick him by name — every identity declares its side on
+  // its own node, so the platform knows who is available.
   await alice.page.getByRole("button", { name: "Open" }).click()
   await alice.page.getByRole("button", { name: "Add task" }).click()
   await expect(alice.page.locator("#task-assignee")).toBeVisible()
@@ -67,12 +57,7 @@ test("a task asked of one creator is not deliverable by another", async ({ brows
   // The operator is in the same room but was not asked: the control is there,
   // visible and locked, rather than missing.
   await operator.page.getByRole("button", { name: "Creator", exact: true }).first().click()
-  await operator.page.locator("#join-slug").fill(SPACE)
-  await operator.page.locator("#join-password").fill(CODE)
-  await operator.page.getByRole("button", { name: "Join" }).click()
-  await signIn(operator.page, SUPERADMIN)
-  // The operator lands on their own panel after the restart, by design.
-  await operator.page.getByRole("button", { name: "Creator", exact: true }).first().click()
+  await enterSpace(operator.page, SPACE)
 
   await expect(operator.page.getByText("Post a thread")).toBeVisible()
   const lockedButton = operator.page.getByRole("button", { name: "Submit work" })

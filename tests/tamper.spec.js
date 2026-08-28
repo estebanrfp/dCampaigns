@@ -13,10 +13,9 @@
  * they delivered cannot be rewritten by the client either.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, createSpace, declareSide, enterSpace, openPeer, roleOf } from "./peers.js"
 
 const SPACE = "tamper"
-const CODE = "code-9182"
 
 test("a rejected creator cannot sign their own approval", async ({ browser }) => {
   const operator = await openPeer(browser, SUPERADMIN)
@@ -25,14 +24,8 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   await declareSide(alice.page, "client", "Acme Inc.")
   await expect(roleOf(alice.page)).toHaveText("client")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
-  await alice.page.locator("#space-slug").fill(SPACE)
-  await alice.page.locator("#space-name").fill("Acme Inc.")
-  await alice.page.locator("#space-password").fill(CODE)
-  await alice.page.getByRole("button", { name: "Create" }).click()
-  await signIn(alice.page, ALICE)
+  await createSpace(alice.page, SPACE, "Acme Inc.")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
   await alice.page.locator("#new-btn").click()
   await alice.page.locator("#campaign-title").fill("Launch week")
   await alice.page.locator("#campaign-brief").fill("Announce 2.0.")
@@ -50,10 +43,7 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   await declareSide(bob.page, "creator", "Bob")
   await expect(roleOf(bob.page)).toHaveText("creator")
 
-  await bob.page.locator("#join-slug").fill(SPACE)
-  await bob.page.locator("#join-password").fill(CODE)
-  await bob.page.getByRole("button", { name: "Join" }).click()
-  await signIn(bob.page, BOB)
+  await enterSpace(bob.page, SPACE)
 
   await expect(bob.page.getByText("Post a thread")).toBeVisible()
   await bob.page.getByRole("button", { name: "Submit work" }).click()
@@ -81,14 +71,13 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   // ── The tampered client ──────────────────────────────────────────
   // Bob's own key, his own GenosDB instance, no interface in the way.
   const attack = await bob.page.evaluate(
-    async ([room, id, mnemonic, superAdmin, owner, password, engineUrl]) => {
+    async ([room, id, mnemonic, superAdmin, owner, engineUrl]) => {
       // The same engine the app loads, from the same path: a tampered client is
       // ordinary code with the user's key, not a different library.
       const { gdb } = await import(engineUrl)
       const db = await gdb(room, {
         rtc: true,
-        password,
-        sm: { superAdmins: [superAdmin, owner], acls: true },
+        sm: { superAdmins: [superAdmin], acls: true },
       })
       await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
 
@@ -121,12 +110,11 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
       }
     },
     [
-      `dcampaigns-${RUN}-c-${SPACE}`,
+      `dcampaigns-${RUN}`,
       submissionId,
       BOB.mnemonic,
       SUPERADMIN.address,
       ALICE.address,
-      CODE,
       ENGINE_URL,
     ]
   )
@@ -141,6 +129,31 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
 
   console.log("tampered client result:", JSON.stringify(attack))
   expect(attack.peers, "the tampered client was connected, so the forged op was broadcast").toBeGreaterThan(0)
+
+  // Below the display layer: what the client's device actually stored.
+  //
+  // The assertions above hold even when the shared node has been rewritten,
+  // because each party renders from its own copy — that defence was built when
+  // the engine's ACLs were bypassed on the sync path, and it stays. This probe
+  // asks the other question: whether the graph itself survived. It opens the
+  // same room with `rtc: false`, so nothing heals or re-poisons the node while
+  // it is being read, and reads what is on this device's disk.
+  //
+  // It was impossible to satisfy until genosdb 0.27.0, which re-checks
+  // authorship wherever state is applied. If it ever fails again, the engine
+  // regressed — the app's own defence would hide that from every other
+  // assertion in this file.
+  const persisted = await alice.page.evaluate(
+    async ([room, id, engineUrl]) => {
+      const { gdb } = await import(engineUrl)
+      const probe = await gdb(room, { rtc: false })
+      const { result } = await probe.get(`approval:${id}`)
+      return result?.value?.verdict ?? null
+    },
+    [`dcampaigns-${RUN}`, submissionId, ENGINE_URL]
+  )
+  console.log("alice's persisted approval node:", persisted)
+  expect(persisted, "the owner's stored node was never rewritten").toBe("rejected")
 
   await operator.context.close()
   await alice.context.close()

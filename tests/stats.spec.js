@@ -7,10 +7,9 @@
  * rate the client does, and can check it against their own replica.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, SUPERADMIN, createSpace, declareSide, enterSpace, openPeer, roleOf } from "./peers.js"
 
 const SPACE = "stats"
-const CODE = "code-4410"
 
 test("figures follow the work, on both sides of it", async ({ browser }) => {
   const operator = await openPeer(browser, SUPERADMIN)
@@ -19,15 +18,9 @@ test("figures follow the work, on both sides of it", async ({ browser }) => {
   await declareSide(alice.page, "client", "Acme Inc.")
   await expect(roleOf(alice.page)).toHaveText("client")
 
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
-  await alice.page.locator("#space-slug").fill(SPACE)
-  await alice.page.locator("#space-name").fill("Acme Inc.")
-  await alice.page.locator("#space-password").fill(CODE)
-  await alice.page.getByRole("button", { name: "Create" }).click()
-  await signIn(alice.page, ALICE)
+  await createSpace(alice.page, SPACE, "Acme Inc.")
 
-  // An empty room reports emptiness rather than a fake zero-shaped dashboard.
-  await alice.page.getByRole("button", { name: "Client", exact: true }).first().click()
+  // An empty space reports emptiness rather than a fake zero-shaped dashboard.
   await alice.page.getByRole("button", { name: "Stats" }).click()
   await expect(alice.page.getByText("approval rate")).toBeVisible()
   await expect(alice.page.getByText("median time to decide")).toBeVisible()
@@ -48,10 +41,7 @@ test("figures follow the work, on both sides of it", async ({ browser }) => {
   const bob = await openPeer(browser, BOB)
   await declareSide(bob.page, "creator", "Bob")
   await expect(roleOf(bob.page)).toHaveText("creator")
-  await bob.page.locator("#join-slug").fill(SPACE)
-  await bob.page.locator("#join-password").fill(CODE)
-  await bob.page.getByRole("button", { name: "Join" }).click()
-  await signIn(bob.page, BOB)
+  await enterSpace(bob.page, SPACE)
 
   await expect(bob.page.getByText("Post a thread")).toBeVisible()
   await bob.page.getByRole("button", { name: "Submit work" }).click()

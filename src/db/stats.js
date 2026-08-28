@@ -15,18 +15,19 @@
  */
 
 /**
- * Aggregate the state of a client's room.
+ * Aggregate the state of a space.
  *
- * @param {object} db - The tenant instance.
- * @param {{creator?: string}} [scope] - Restrict to one creator's own work.
+ * @param {object} db - The database.
+ * @param {{space?: string, creator?: string}} [scope] - One space, or one creator's own work.
  * @returns {Promise<object>} Counters, rates and turnaround.
  */
-export const computeStats = async (db, { creator } = {}) => {
+export const computeStats = async (db, { space, creator } = {}) => {
+  const at = space ? { space } : {}
   const [campaigns, tasks, submissions, approvals] = await Promise.all([
-    db.map({ query: { type: "campaign" } }),
-    db.map({ query: { type: "task" } }),
-    db.map({ query: creator ? { type: "submission", creator } : { type: "submission" } }),
-    db.map({ query: { type: "approval" } }),
+    db.map({ query: { type: "campaign", ...at } }),
+    db.map({ query: { type: "task", ...at } }),
+    db.map({ query: creator ? { type: "submission", ...at, creator } : { type: "submission", ...at } }),
+    db.map({ query: { type: "approval", ...at } }),
   ])
 
   // Verdicts are separate nodes, so a submission's outcome is a lookup, not a

@@ -10,18 +10,24 @@
  *
  * Node-level ACLs are what make that hold against a tampered client: every peer
  * re-checks each incoming operation against the cryptographically verified
- * author, so a creator cannot approve their own work and a client cannot
+ * author — on the live path and on state reconciliation alike since genosdb
+ * 0.27.x — so a creator cannot approve their own work and a client cannot
  * silently alter what was delivered.
+ *
+ * One database carries the whole marketplace. A space is a catalogue node
+ * owned by its client; everything inside it says `space: slug` and has an
+ * owner of its own. Isolation is authorship — who signed what — with
+ * `encryptDataForCurrentUser` for anything one identity keeps to itself.
  */
 import { SUPERADMIN } from "./config.js"
 
 const now = () => Date.now()
 const newId = () => crypto.randomUUID()
 
-// ── Directory ────────────────────────────────────────────────────────
+// ── Identity ─────────────────────────────────────────────────────────
 
 /**
- * Create or update the caller's own profile in the public directory.
+ * Create or update the caller's own profile.
  *
  * This is the one write a brand-new identity is allowed: the node must be
  * `user:<address>` and the engine forcibly stamps `role: "guest"` on it,
@@ -31,7 +37,7 @@ const newId = () => crypto.randomUUID()
  * `db.put` replaces the whole value, so the existing node is spread first —
  * writing a bare object would wipe the role the Security Manager stores there.
  *
- * @param {object} db - The directory instance.
+ * @param {object} db - The database.
  * @param {string} address - The caller's Ethereum address.
  * @param {{displayName?: string, requestedSide?: 'client'|'creator'}} profile
  * @returns {Promise<string>} The node id.
@@ -43,20 +49,6 @@ export const saveProfile = async (db, address, profile) => {
 }
 
 /**
- * Register a client space in the public catalogue.
- *
- * The room password is deliberately NOT stored here: the directory is readable
- * by anyone, and a secret in it would be no secret. It travels out of band and
- * is entered by whoever is admitted.
- *
- * @param {object} db - The directory instance.
- * @param {{slug: string, name: string, owner: string}} client
- * @returns {Promise<string>} The node id.
- */
-export const createClientSpace = (db, { slug, name, owner }) =>
-  db.put({ type: "client", slug, name, owner, createdAt: now() }, `client:${slug}`)
-
-/**
  * Make sure this identity carries a role at all.
  *
  * Governance matches on the field: a rule reading `{ role: "guest" }` cannot
@@ -65,13 +57,13 @@ export const createClientSpace = (db, { slug, name, owner }) =>
  * that is the sensible fallback, so the account looks like every other newcomer
  * while being unreachable.
  *
- * Observed in real use: a node holding only `displayName`, `requestedSide` and
- * `keyring`, written before the Security Manager had stamped a role, stranded
- * for good while fresh accounts sailed through.
+ * Observed in real use: a node holding only `displayName` and `requestedSide`,
+ * written before the Security Manager had stamped a role, stranded for good
+ * while fresh accounts sailed through.
  *
  * `role` goes first in the spread so an existing one always wins.
  *
- * @param {object} db - The directory instance.
+ * @param {object} db - The database.
  * @param {string} address
  * @returns {Promise<boolean>} whether a role had to be written.
  */
@@ -119,90 +111,6 @@ export const awaitNode = async (db, id, timeout = 5000) => {
 }
 
 /**
- * Introduce the caller into a room they have just entered.
- *
- * Roles are stored per graph, so an identity that is a `client` in the
- * directory arrives at a tenant room as an unknown guest. The welcome write is
- * spent here on the same declaration the directory holds, and that room's
- * governance — run by its owner, who is a superadmin of their own space —
- * grants the matching role.
- *
- * A guest gets exactly one write, so this is skipped once the node exists.
- *
- * @param {object} db - The tenant instance.
- * @param {string} address - The caller's Ethereum address.
- * @param {{displayName?: string, requestedSide?: string}} profile - As held in the directory.
- * @returns {Promise<void>}
- */
-export const introduceInRoom = async (db, address, profile) => {
-  const id = `user:${address}`
-  const { result } = await db.get(id)
-
-  // The node may already exist without ever having been introduced: the
-  // Security Manager creates `user:<address>` when the session opens, carrying
-  // a role and nothing else. Skipping on "it exists" therefore skipped every
-  // time, and left an identity the room could not name. Only a declaration
-  // already in place means there is nothing to do.
-  if (result?.value?.requestedSide) return
-
-  // Spread first: `db.put` replaces the whole value, and the role stored here
-  // is the room's, not ours to drop.
-  await db.put(
-    {
-      ...result?.value,
-      displayName: profile.displayName,
-      requestedSide: profile.requestedSide,
-    },
-    id
-  )
-}
-
-/**
- * The keyring lives in its own node, not on the user node.
- *
- * It used to be a field on `user:<address>`, and that was a latent way to lose
- * your own spaces: assigning a role rewrites that node and drops every
- * application field with it. Observed directly — after a promotion the node was
- * left as `{ role, ethAddress, assignedByEthAddress, expiresAt }` and nothing
- * else. Real accounts survived only because the app happened to rewrite them
- * afterwards, which is a race, and losing it means losing the passwords to
- * every client space you had been admitted to.
- *
- * A node of its own is untouched by governance, still replicates (so the
- * keyring follows the identity to another device), and is owned through ACLs so
- * no other peer can overwrite it.
- */
-const keyringId = (address) => `keyring:${address}`
-
-/**
- * Remember a room the caller has been admitted to.
- *
- * The passwords are encrypted with a key derived from the caller's own identity
- * before they touch the graph. This encrypts *for yourself* — there is no
- * recipient — which is exactly the shape needed: a private keyring, not a way
- * to hand a key to somebody else.
- *
- * @param {object} db - The directory instance.
- * @param {string} address - The caller's Ethereum address.
- * @param {{slug: string, password: string, owner: string}} room
- * @returns {Promise<string>} The node id.
- */
-export const rememberRoom = async (db, address, room) => {
-  const keyring = await readKeyring(db, address)
-  const next = [...keyring.filter((entry) => entry.slug !== room.slug), room]
-  const { result } = await db.get(keyringId(address))
-  return db.sm.acls.set(
-    {
-      ...result?.value,
-      type: "keyring",
-      owner: address,
-      rooms: await db.sm.encryptDataForCurrentUser(next),
-    },
-    keyringId(address)
-  )
-}
-
-/**
  * Keep our own copy of the declared side, and put it back when it goes missing.
  *
  * The governance engine runs on the superadmin's device and writes from *their*
@@ -215,7 +123,7 @@ export const rememberRoom = async (db, address, room) => {
  * So the declaration is kept in the node that is ours (governance only rewrites
  * `user:<address>`) and re-seeded whenever the public one has lost it.
  *
- * @param {object} db - The directory instance.
+ * @param {object} db - The database.
  * @param {string} address
  * @returns {Promise<boolean>} whether the side had to be restored.
  */
@@ -243,144 +151,39 @@ export const keepSide = async (db, address) => {
   return true
 }
 
-/**
- * The reviewer keeps their own copy of every verdict, off the graph.
- *
- * A verdict is a claim by the person who signed it — but the graph node that
- * carries it is not, on its own, tamper-proof. Node-level ACLs are enforced on
- * the live op-by-op path only; state reconciliation (`deltaSync` /
- * `fullStateSync`) merges by clock alone, with no ownership check. So a peer
- * running modified code can broadcast a newer timestamp for an approval id and
- * overwrite its value on every peer it syncs with — the owner's included.
- *
- * The defence is not to trust the shared node for your own decisions. The
- * reviewer mirrors each verdict to local storage, which lives outside the
- * replicated graph where no peer can reach it, and the client's own view is
- * drawn from that copy. The network can flip the mirror; it cannot flip what
- * you decided on your own device.
- *
- * @param {string} slug - The room the decision was made in.
- * @param {string} submissionId
- * @param {'approved'|'rejected'} verdict
- */
-export const rememberVerdict = (slug, submissionId, verdict) => {
-  if (slug && submissionId) localStorage.setItem(`dcampaigns.verdict.${slug}.${submissionId}`, verdict)
-}
+// ── Catalogue ────────────────────────────────────────────────────────
 
 /**
- * This device's own recorded verdict for a submission, or null if it made none.
+ * Register a client space in the catalogue.
  *
- * @param {string} slug
- * @param {string} submissionId
- * @returns {string|null}
- */
-export const ownVerdict = (slug, submissionId) =>
-  slug && submissionId ? localStorage.getItem(`dcampaigns.verdict.${slug}.${submissionId}`) : null
-
-/**
- * The creator keeps their own copy of what they delivered, off the graph.
+ * An ACL node: the engine stamps the caller as `owner`, and that authorship is
+ * enforced by every peer on every sync path — the entry cannot be reassigned
+ * or rewritten by anyone else. There is no password and nothing to hand out:
+ * entering a space is choosing it from the catalogue, and what keeps the work
+ * inside a space its client's is ownership, not distance.
  *
- * A submission is the creator's node, but "owned" is not "immutable": the same
- * reconciliation path that can flip a verdict can rewrite a delivery, and an
- * operator granted `delete` to moderate also holds `write` — the ACL model
- * folds the two together. So the creator mirrors the delivery to local storage
- * and renders their own copy on their own submissions. What you delivered is
- * yours to display, whatever a peer merged into the shared node.
- *
- * @param {string} slug
- * @param {string} submissionId
- * @param {{postUrl: string, proof: string}} content
- */
-export const rememberSubmission = (slug, submissionId, content) => {
-  if (slug && submissionId) localStorage.setItem(`dcampaigns.submission.${slug}.${submissionId}`, JSON.stringify(content))
-}
-
-/**
- * This device's own copy of a submission it delivered, or null.
- *
- * @param {string} slug
- * @param {string} submissionId
- * @returns {{postUrl: string, proof: string}|null}
- */
-export const ownSubmission = (slug, submissionId) => {
-  if (!slug || !submissionId) return null
-  try {
-    return JSON.parse(localStorage.getItem(`dcampaigns.submission.${slug}.${submissionId}`)) || null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Open the caller's keyring, if it is theirs to open.
- *
- * The throw *is* the ownership test: an `owner` field is plain data any peer
- * with a write role can set, while the key cannot be faked.
- *
- * @param {object} db - The directory instance.
- * @param {string} address - The caller's Ethereum address.
- * @returns {Promise<Array<{slug: string, password: string, owner: string}>>}
- */
-export const readKeyring = async (db, address) => {
-  if (!address) return []
-  const { result } = await db.get(keyringId(address))
-  if (!result?.value?.rooms) return []
-  try {
-    return await db.sm.decryptDataForCurrentUser(result.value.rooms)
-  } catch {
-    return [] // not ours
-  }
-}
-
-/**
- * Move a keyring that still lives on the user node.
- *
- * Anyone who used an earlier build has their room passwords in the place a role
- * assignment can erase. This lifts them out on the next sign-in and clears the
- * old field, so the window closes for good rather than staying open for
- * whoever happens to be promoted next.
- *
- * @param {object} db - The directory instance.
- * @param {string} address
- * @returns {Promise<boolean>} whether anything was moved.
- */
-export const migrateKeyring = async (db, address) => {
-  const userId = `user:${address}`
-  const { result } = await db.get(userId)
-  if (!result?.value?.keyring) return false
-
-  let rooms
-  try {
-    rooms = await db.sm.decryptDataForCurrentUser(result.value.keyring)
-  } catch {
-    return false // not ours to move
-  }
-
-  await db.sm.acls.set(
-    { type: "keyring", owner: address, rooms: await db.sm.encryptDataForCurrentUser(rooms) },
-    keyringId(address)
-  )
-
-  const { keyring, ...withoutKeyring } = result.value
-  await db.put(withoutKeyring, userId)
-  return true
-}
-
-// ── Tenant graph ─────────────────────────────────────────────────────
-
-/**
- * Create a campaign inside a client's room.
- *
- * @param {object} db - The tenant instance.
- * @param {{title: string, brief: string, owner: string}} campaign
+ * @param {object} db - The database.
+ * @param {{slug: string, name: string}} client
  * @returns {Promise<string>} The node id.
  */
-export const createCampaign = (db, { title, brief, owner }) => {
+export const createClientSpace = (db, { slug, name }) =>
+  db.sm.acls.set({ type: "client", slug, name, createdAt: now() }, `client:${slug}`)
+
+// ── Space graph ──────────────────────────────────────────────────────
+
+/**
+ * Create a campaign inside a space.
+ *
+ * @param {object} db - The database.
+ * @param {{space: string, title: string, brief: string}} campaign
+ * @returns {Promise<string>} The node id.
+ */
+export const createCampaign = (db, { space, title, brief }) => {
   const id = `campaign:${newId()}`
   // `ref` repeats the node id inside the value on purpose: the query language
   // filters on fields of the value, so without it there is no way to name one
   // campaign as the starting point of an `$edge` traversal.
-  return db.put({ type: "campaign", ref: id, title, brief, owner, status: "open", createdAt: now() }, id)
+  return db.sm.acls.set({ type: "campaign", ref: id, space, title, brief, status: "open", createdAt: now() }, id)
 }
 
 /**
@@ -390,13 +193,13 @@ export const createCampaign = (db, { title, brief, owner }) => {
  * query, so it is created here rather than left to the reader to infer from a
  * foreign key.
  *
- * @param {object} db - The tenant instance.
- * @param {{campaignId: string, title: string, requirements: string, assignee?: string}} task
+ * @param {object} db - The database.
+ * @param {{space: string, campaignId: string, title: string, requirements: string, assignee?: string}} task
  * @returns {Promise<string>} The node id.
  */
-export const createTask = async (db, { campaignId, title, requirements, assignee = null }) => {
-  const id = await db.put(
-    { type: "task", campaignId, title, requirements, assignee, status: "open", createdAt: now() },
+export const createTask = async (db, { space, campaignId, title, requirements, assignee = null }) => {
+  const id = await db.sm.acls.set(
+    { type: "task", space, campaignId, title, requirements, assignee, status: "open", createdAt: now() },
     `task:${newId()}`
   )
   await db.link(campaignId, id)
@@ -407,13 +210,14 @@ export const createTask = async (db, { campaignId, title, requirements, assignee
  * Assign a task to a specific creator, or reopen it to anyone.
  *
  * The assignment is a signed statement by the client: *this person is the one I
- * asked*. It is not a lock — any member of the room can still sign a delivery,
- * and if they do, the graph records exactly who did it and the client rejects
- * it. What the assignment buys is attribution, not prevention.
+ * asked*. It is not a lock — any member can still sign a delivery, and if they
+ * do, the graph records exactly who did it and the client rejects it. What the
+ * assignment buys is attribution, not prevention.
  *
- * `db.put` replaces the whole value, so the task is spread first.
+ * `acls.set` merges over the stored node and re-checks ownership on every
+ * peer, so only the task's owner (or a `write` collaborator) can change this.
  *
- * @param {object} db - The tenant instance.
+ * @param {object} db - The database.
  * @param {string} taskId
  * @param {string|null} assignee - A creator's address, or null to reopen it.
  * @returns {Promise<string>} The node id.
@@ -421,20 +225,19 @@ export const createTask = async (db, { campaignId, title, requirements, assignee
 export const assignTask = async (db, taskId, assignee) => {
   const { result } = await db.get(taskId)
   if (!result) throw new Error("That task no longer exists")
-  return db.put({ ...result.value, assignee, assignedAt: assignee ? now() : null }, taskId)
+  return db.sm.acls.set({ assignee, assignedAt: assignee ? now() : null }, taskId)
 }
 
 /**
- * The creators who have joined this room.
+ * The creators on the platform.
  *
- * Every identity introduces itself in each graph it enters, carrying the side
- * it declared, so the room itself knows who is available to be assigned — no
- * roster to maintain, and no lookup back into the directory.
+ * Every identity declares its side on its own `user:` node, so the graph
+ * itself knows who is available to be assigned — no roster to maintain.
  *
- * @param {object} db - The tenant instance.
+ * @param {object} db - The database.
  * @returns {Promise<object>} `{ results }` of `user:<address>` nodes.
  */
-export const creatorsInRoom = (db) => db.map({ query: { requestedSide: "creator" } })
+export const creators = (db) => db.map({ query: { requestedSide: "creator" } })
 
 /**
  * Submit work against a task.
@@ -449,13 +252,14 @@ export const creatorsInRoom = (db) => db.map({ query: { requestedSide: "creator"
  * power over a node it does not own. Moderation that was not written into the
  * node when it was born does not exist.
  *
- * @param {object} db - The tenant instance.
- * @param {{taskId: string, postUrl: string, proof: string, creator: string, reviewer: string}} submission
+ * @param {object} db - The database.
+ * @param {{space: string, taskId: string, postUrl: string, proof: string, creator: string, reviewer: string}} submission
  * @returns {Promise<string>} The node id.
  */
-export const submitWork = async (db, { taskId, postUrl, proof, creator, reviewer }) => {
+export const submitWork = async (db, { space, taskId, postUrl, proof, creator, reviewer }) => {
   const id = await db.sm.acls.set({
     type: "submission",
+    space,
     taskId,
     postUrl,
     proof,
@@ -475,13 +279,13 @@ export const submitWork = async (db, { taskId, postUrl, proof, creator, reviewer
  * delivered and the record of what was decided are different claims by
  * different people, and each is verifiable on its own.
  *
- * @param {object} db - The tenant instance.
- * @param {{submissionId: string, verdict: 'approved'|'rejected', note: string, reviewer: string, creator: string}} decision
+ * @param {object} db - The database.
+ * @param {{space: string, submissionId: string, verdict: 'approved'|'rejected', note: string, reviewer: string, creator: string}} decision
  * @returns {Promise<string>} The node id.
  */
-export const decideSubmission = async (db, { submissionId, verdict, note, reviewer, creator }) => {
+export const decideSubmission = async (db, { space, submissionId, verdict, note, reviewer, creator }) => {
   const id = await db.sm.acls.set(
-    { type: "approval", submissionId, verdict, note, reviewer, decidedAt: now() },
+    { type: "approval", space, submissionId, verdict, note, reviewer, decidedAt: now() },
     `approval:${submissionId}`
   )
   await db.sm.acls.grant(id, creator, "read")
@@ -497,7 +301,7 @@ export const decideSubmission = async (db, { submissionId, verdict, note, review
  * The campaign is the starting point and the sub-query filters its descendants,
  * so the result is the tasks themselves — not the campaign.
  *
- * @param {object} db - The tenant instance.
+ * @param {object} db - The database.
  * @param {string} campaignId
  * @param {Function} [callback] - Pass one to subscribe in real time.
  * @returns {Promise<object>} `{ results, unsubscribe? }`
