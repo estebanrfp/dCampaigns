@@ -13,7 +13,7 @@
  * they delivered cannot be rewritten by the client either.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
 
 const SPACE = "tamper"
 const CODE = "code-9182"
@@ -81,10 +81,10 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   // ── The tampered client ──────────────────────────────────────────
   // Bob's own key, his own GenosDB instance, no interface in the way.
   const attack = await bob.page.evaluate(
-    async ([room, id, mnemonic, superAdmin, owner, password]) => {
+    async ([room, id, mnemonic, superAdmin, owner, password, engineUrl]) => {
       // The same engine the app loads, from the same path: a tampered client is
       // ordinary code with the user's key, not a different library.
-      const { gdb } = await import("/genosdb/index.js")
+      const { gdb } = await import(engineUrl)
       const db = await gdb(room, {
         rtc: true,
         password,
@@ -127,6 +127,7 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
       SUPERADMIN.address,
       ALICE.address,
       CODE,
+      ENGINE_URL,
     ]
   )
 

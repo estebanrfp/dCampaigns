@@ -13,7 +13,7 @@
  * a role change must not cost you a room you were admitted to.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, ENGINE_URL, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
 
 const SPACE = "keyring"
 const CODE = "code-3390"
@@ -52,8 +52,8 @@ test("a role assignment does not take the room keys with it", async ({ browser }
   // signs, so the throwaway shares this context's OPFS and the assertions read
   // the graph directly.
   const survived = await alice.page.evaluate(
-    async ([room, mnemonic, superAdmin, addr]) => {
-      const { gdb } = await import("/genosdb/index.js")
+    async ([room, mnemonic, superAdmin, addr, engineUrl]) => {
+      const { gdb } = await import(engineUrl)
       const db = await gdb(room, { rtc: true, sm: { superAdmins: [superAdmin], acls: true } })
       await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
       const id = `user:${addr}`
@@ -66,7 +66,7 @@ test("a role assignment does not take the room keys with it", async ({ browser }
 
       return { before: !!before, userAfter, after: !!after }
     },
-    [`dcampaigns-${RUN}`, ALICE.mnemonic, SUPERADMIN.address, ALICE.address]
+    [`dcampaigns-${RUN}`, ALICE.mnemonic, SUPERADMIN.address, ALICE.address, ENGINE_URL]
   )
 
   // The rewrite really did strip the user node down…

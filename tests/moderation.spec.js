@@ -13,7 +13,7 @@
  * who can rewrite what is the one thing this product sells.
  */
 import { expect, test } from "@playwright/test"
-import { ALICE, BOB, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
+import { ALICE, BOB, ENGINE_URL, RUN, SUPERADMIN, declareSide, openPeer, roleOf, signIn } from "./peers.js"
 
 const SPACE = "moderation"
 const CODE = "code-8821"
@@ -65,8 +65,8 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
 
   // The operator, from its own instance, tries to rewrite what Bob delivered.
   const attempt = await operator.page.evaluate(
-    async ([room, id, mnemonic, superAdmin, owner, password]) => {
-      const { gdb } = await import("/genosdb/index.js")
+    async ([room, id, mnemonic, superAdmin, owner, password, engineUrl]) => {
+      const { gdb } = await import(engineUrl)
       const db = await gdb(room, { rtc: true, password, sm: { superAdmins: [superAdmin, owner], acls: true } })
       await db.sm.loginOrRecoverUserWithMnemonic(mnemonic)
 
@@ -86,7 +86,7 @@ test("what the operator can do to a delivery it did not make", async ({ browser 
         return { peers, threw: error.message }
       }
     },
-    [`dcampaigns-${RUN}-c-${SPACE}`, submissionId, SUPERADMIN.mnemonic, SUPERADMIN.address, ALICE.address, CODE]
+    [`dcampaigns-${RUN}-c-${SPACE}`, submissionId, SUPERADMIN.mnemonic, SUPERADMIN.address, ALICE.address, CODE, ENGINE_URL]
   )
 
   console.log("operator rewrite attempt:", JSON.stringify(attempt))

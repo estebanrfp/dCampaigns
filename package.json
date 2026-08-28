@@ -5,15 +5,11 @@
   "type": "module",
   "description": "Commissioning creative work — brief, assign, deliver, decide — as a distributed application over a signed graph",
   "scripts": {
-    "sync-engine": "rm -rf public/genosdb && mkdir -p public && cp -R node_modules/genosdb/dist public/genosdb",
-    "dev": "pnpm sync-engine && vite",
-    "build": "pnpm sync-engine && vite build",
+    "dev": "vite",
+    "build": "vite build",
     "preview": "vite preview",
     "test": "playwright test",
     "test:ui": "playwright test --ui"
-  },
-  "dependencies": {
-    "genosdb": "^0.25.0"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

@@ -14,5 +14,3 @@ dist-ssr/
 test-results/
 playwright-report/
 
-# Engine copied verbatim at build time — never edited, never committed
-public/genosdb/

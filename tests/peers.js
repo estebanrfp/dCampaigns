@@ -6,6 +6,15 @@
  */
 import { expect } from "@playwright/test"
 
+/**
+ * The engine under test, from the same place the app loads it.
+ *
+ * A tampered client is ordinary code holding a user's key, not a different
+ * library — so the specs that build a second instance must load the very build
+ * the deployed app runs, or they prove something about a version nobody uses.
+ */
+export { ENGINE_URL } from "../src/db/engine.js"
+
 export const SUPERADMIN = {
   name: "Superadmin",
   mnemonic: "panic now afford carbon donate lecture drift excite collect essay stuff prosper",

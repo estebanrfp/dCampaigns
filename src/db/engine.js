@@ -1,5 +1,5 @@
 /**
- * Loading GenosDB without letting the bundler take it apart.
+ * Loading GenosDB from the CDN, in one piece.
  *
  * GenosDB resolves its optional modules at runtime, relative to itself
  * (`import.meta.url`): `sm.min.js` reaches for `sm-acls.min.js` and
@@ -12,10 +12,20 @@
  * and answered 404 for `sm-acls.min.js` and `sm-gov.min.js`. Node ownership and
  * role promotion would have failed silently in production while working in dev.
  *
- * So the engine is shipped as an untouched folder and loaded from a path the
- * bundler never inspects. `@vite-ignore` keeps the import opaque, and
- * `BASE_URL` keeps it correct under a sub-path deployment such as GitHub Pages.
+ * Loading from the CDN sidesteps that: `import.meta.url` then points at the CDN
+ * directory, where every sibling is served next to it. `@vite-ignore` keeps the
+ * import opaque, so the bundler never inspects it and the app carries no copy
+ * of the engine at all.
+ *
+ * The version is deliberately floating. This app exists to show what GenosDB
+ * can carry, so it should demonstrate the engine as it is today rather than as
+ * it was the week the app was written — and if a release ever breaks it, that
+ * is worth learning from a real application rather than from a report months
+ * later.
  */
+
+/** Where the engine comes from — written down once, used by the app and the suite. */
+export const ENGINE_URL = "https://cdn.jsdelivr.net/npm/genosdb@latest/dist/index.js"
 
 /** @type {Promise<Function>|null} */
 let engine = null
@@ -26,6 +36,4 @@ let engine = null
  * @returns {Promise<Function>} GenosDB's `gdb(name, options)`.
  */
 export const loadGdb = () =>
-  (engine ??= import(/* @vite-ignore */ `${import.meta.env.BASE_URL}genosdb/index.js`).then(
-    (module) => module.gdb
-  ))
+  (engine ??= import(/* @vite-ignore */ ENGINE_URL).then((module) => module.gdb))
