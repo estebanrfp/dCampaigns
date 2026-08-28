@@ -23,6 +23,13 @@
         <div class="session">
           <button id="session-addr" class="session-addr" title="Copy your full address"></button>
           <span id="session-role" class="role-tag"></span>
+          <button id="help-btn" class="icon-btn" title="How this works" aria-label="How this works">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+              <path d="M12 17h.01" />
+            </svg>
+          </button>
           <button id="theme-btn" class="icon-btn" title="Theme" aria-label="Theme">
             <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
               <circle cx="12" cy="12" r="4" />
@@ -116,6 +123,9 @@
       </div>
 
       <p id="phrase-warning" class="modal-warn hidden">Save this phrase. There is no reset.</p>
+
+      <!-- Where a first-time visitor actually is when nothing makes sense yet. -->
+      <button id="help-link" class="modal-link" type="button">New here? How this works</button>
     </dialog>
 
     <!-- Onboarding: spends the newcomer's single allowed write on declaring a side. -->
@@ -133,6 +143,48 @@
       <div class="modal-actions">
         <button id="onboard-btn" class="primary">Continue</button>
       </div>
+    </dialog>
+
+    <!--
+      What this is, for whoever opens the link cold. Reachable any time from the
+      "?" in the top bar, and shown once on a first visit — a distributed app
+      reads as broken until you know a role has to be signed by somebody.
+    -->
+    <dialog id="help-modal" class="help">
+      <h2 class="modal-title">How dCampaigns works</h2>
+      <p class="modal-hint">A distributed application — no backend, no accounts. The page you are on is the whole thing.</p>
+
+      <div class="help-body">
+        <section>
+          <h3>No server, just peers</h3>
+          <p>Your data lives in a signed graph that replicates directly between the people using it. Open this page in a second browser window and the two become peers — the second is talking to the first, not to a server in the middle.</p>
+        </section>
+        <section>
+          <h3>Three sides, one graph</h3>
+          <ul>
+            <li><strong>Operator</strong> — runs the platform, arbitrates, moderates.</li>
+            <li><strong>Client</strong> — briefs campaigns, breaks them into tasks, assigns and approves.</li>
+            <li><strong>Creator</strong> — picks up work and delivers it with proof.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Try it in a minute</h3>
+          <ol>
+            <li>Enter as the operator with <strong>🛡️ Superadmin (demo)</strong> — the role that signs everyone else's.</li>
+            <li>In a second window, <strong>generate a new identity</strong> and pick a side.</li>
+            <li>Roles are granted by a signature, not a database flag, so keep the operator window open: it is what promotes a newcomer from guest to their side.</li>
+          </ol>
+        </section>
+        <section>
+          <h3>The part that matters</h3>
+          <p>An approval here cannot be forged. A delivery stays the creator's own signed record; the verdict on it is a <em>separate</em> signed record, owned by whoever decided it. A creator cannot approve their own work, and a client cannot rewrite what was delivered — tested against a client running tampered code, not just claimed.</p>
+        </section>
+      </div>
+
+      <form method="dialog" class="modal-actions">
+        <!-- autofocus: keep the opening focus ring off the scrollable body. -->
+        <button value="ok" class="primary" autofocus>Got it</button>
+      </form>
     </dialog>
 
     <dialog id="confirm-modal">

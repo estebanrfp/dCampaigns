@@ -15,7 +15,7 @@
  */
 import { forgetPendingRoom, openDirectory, openTenant, pendingRoom } from "./db/rooms.js"
 import { SUPERADMIN } from "./db/config.js"
-import { ensureRole, introduceInRoom, keepSide, migrateKeyring, readKeyring } from "./db/model.js"
+import { ensureRole, introduceInRoom, keepSide, migrateKeyring, readKeyring, rememberRoom } from "./db/model.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
 import { render } from "./ui/views.js"
@@ -29,6 +29,9 @@ const el = {
   logout: $("logout-btn"),
   presence: $("presence"),
   sides: $("sides"),
+  help: $("help-btn"),
+  helpLink: $("help-link"),
+  helpModal: $("help-modal"),
 }
 
 // 1. The databases, with their constitution — ALL of them, before the door.
@@ -76,6 +79,19 @@ el.sides.onclick = (event) => {
   render()
 }
 
+// Help, from the two places somebody looks for it: the "?" in the top bar, and
+// the identity door itself — which is where a first-time visitor actually is,
+// and the moment a distributed app most reads as broken.
+//
+// Deliberately not auto-opened. Stacking it on the door buries the door, and a
+// sheet that appears unasked gets dismissed unread.
+el.helpModal.onclick = (event) => {
+  if (event.target === el.helpModal) el.helpModal.close()
+}
+;[el.help, el.helpLink].forEach((button) => {
+  if (button) button.onclick = () => el.helpModal.showModal()
+})
+
 // 4. Presence, from the room.
 const updatePresence = () => {
   const count = Object.keys(directory.room?.getPeers() ?? {}).length
@@ -108,6 +124,27 @@ const watchSelf = async (address) => {
     render()
   })
   state.keyring = await readKeyring(directory, address)
+
+  // Put back a key that never reached the disk.
+  //
+  // Entering a space restarts the app, and `db.put` returns once the graph is
+  // updated in memory — persistence to OPFS is scheduled, not awaited. A reload
+  // that wins that race drops the write, and the space you just created becomes
+  // one you cannot open again: the app rejoins the room (its entry is in
+  // sessionStorage) while the keyring, which is what the sidebar lists, comes
+  // back empty.
+  //
+  // The pending entry still carries the password, so the repair is to write it
+  // again. Idempotent: `rememberRoom` replaces by slug.
+  const entering = pendingRoom()
+  if (entering && !state.keyring.some((room) => room.slug === entering.slug)) {
+    try {
+      await rememberRoom(directory, address, entering)
+      state.keyring = await readKeyring(directory, address)
+    } catch (error) {
+      console.error("[dCampaigns] could not restore the key to this space:", error)
+    }
+  }
 
   const { unsubscribe } = await directory.get(`user:${address}`, async (node) => {
     state.role = node?.value?.role ?? "guest"
@@ -194,3 +231,4 @@ await initIdentity(directory, (securityState) => {
 
 // 6. The first paint. Views subscribe from here on, never from the session callback.
 await render()
+
