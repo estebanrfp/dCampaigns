@@ -52,7 +52,10 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   await bob.page.getByRole("button", { name: "Submit", exact: true }).click()
 
   // The client rejects it, on the record.
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const aliceCard = alice.page.locator("[data-submission]").first()
   await expect(aliceCard).toBeVisible()

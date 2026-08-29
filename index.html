@@ -18,22 +18,9 @@
       <header class="topbar">
         <h1 class="brand">dCampaigns <span>· campaigns as signed data</span></h1>
 
-        <nav class="sides" id="sides" aria-label="Views">
-          <button class="side-btn" data-side="creator" aria-current="false">Creator</button>
-          <button class="side-btn" data-side="client" aria-current="false">Client</button>
-          <button class="side-btn" data-side="admin" aria-current="false">Admin</button>
-        </nav>
-
         <div class="session">
           <button id="session-addr" class="session-addr" title="Copy your full address"></button>
           <span id="session-role" class="role-tag"></span>
-          <button id="help-btn" class="icon-btn" title="How this works" aria-label="How this works">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
-              <path d="M12 17h.01" />
-            </svg>
-          </button>
           <button id="theme-btn" class="icon-btn" title="Theme" aria-label="Theme">
             <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
               <circle cx="12" cy="12" r="4" />
@@ -75,6 +62,13 @@
               <path d="m20 20-3.5-3.5" />
             </svg>
             <input id="search-input" class="search" type="text" placeholder="Search…" aria-label="Search" />
+            <button id="help-btn" class="icon-btn" title="How this works" aria-label="How this works">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+              <path d="M12 17h.01" />
+            </svg>
+          </button>
             <button id="new-btn" class="icon-btn" disabled title="Sign in to create" aria-label="New">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
@@ -86,6 +80,22 @@
         </nav>
 
         <div class="main">
+          <!-- The band that lines up with the search head across the sidebar:
+               one 48px chrome height everywhere, per the design guide. Back
+               belongs here rather than inside the content, because it is
+               navigation, and so does the layout switch. -->
+          <div class="content-head">
+            <div id="head-left" class="row"></div>
+            <div id="head-right" class="row">
+              <!-- The three sides read as one control: words divided by a rule,
+                   not three buttons competing for the same attention. -->
+              <nav class="sides" id="sides" aria-label="Views">
+                <button class="side-btn" data-side="creator" aria-current="false">Creator</button>
+                <button class="side-btn" data-side="client" aria-current="false">Client</button>
+                <button class="side-btn" data-side="admin" aria-current="false">Admin</button>
+              </nav>
+            </div>
+          </div>
           <main class="content" id="content"></main>
           <footer class="statusbar">
             <div id="status-meta"></div>

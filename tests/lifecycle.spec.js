@@ -49,7 +49,10 @@ test("a rejected delivery is answered by a second attempt, and both stay on the 
   await bob.page.getByRole("button", { name: "Submit", exact: true }).click()
 
   // ── The client sends it back, with a reason ──────────────────────
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const firstCard = alice.page.locator("[data-submission]").first()
   await expect(firstCard).toBeVisible()

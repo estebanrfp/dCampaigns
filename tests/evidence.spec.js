@@ -56,7 +56,10 @@ test("the attached file is pinned by a fingerprint the delivery signed", async (
   await bob.page.getByRole("button", { name: "Submit", exact: true }).click()
 
   // ── It reaches the reviewer as a file, not a promise of one ──────
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const card = alice.page.locator("[data-submission]").first()
   await expect(card).toBeVisible()

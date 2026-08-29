@@ -29,8 +29,8 @@ import { computeStats, humanDuration } from "../db/stats.js"
 import { state } from "../state/app.js"
 import { addr, clear, elt, liveList, when } from "./dom.js"
 import { livePeerMap } from "./presence.js"
-import { viewToggle } from "./view-mode.js"
 import { show, toast } from "./feedback.js"
+import { emptyFor, searchable } from "./search.js"
 
 const $ = (id) => document.getElementById(id)
 const dom = {
@@ -38,7 +38,6 @@ const dom = {
   listEmpty: $("list-empty"),
   content: $("content"),
   newBtn: $("new-btn"),
-  search: $("search-input"),
   statusMeta: $("status-meta"),
 }
 
@@ -68,7 +67,45 @@ const can = (verb) =>
   })[verb]?.includes(state.role) ?? false
 
 const section = (title, ...children) =>
-  elt("section", {}, elt("h2", { className: "section-title", textContent: title }), ...children)
+  elt(
+    "section",
+    {},
+    // A view whose name is already in the band above does not repeat it here.
+    title ? elt("h2", { className: "section-title", textContent: title }) : null,
+    ...children
+  )
+
+/**
+ * What the band across the top of the content is showing.
+ *
+ * Going back is navigation, so it belongs in chrome rather than among the
+ * controls that act on what is on screen — and it lands in the same place on
+ * every view instead of wherever that view happened to put it.
+ *
+ * @param {{label: string, onclick: Function}|null} back
+ */
+const setHead = ({ back = null, title = "" } = {}) => {
+  const left = $("head-left")
+  clear(left)
+  if (!back && !title) return
+  const button = back ? elt("button", { className: "head-btn", onclick: back.onclick }) : null
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("fill", "none")
+  svg.setAttribute("stroke", "currentColor")
+  svg.setAttribute("stroke-width", "2")
+  svg.setAttribute("stroke-linecap", "round")
+  svg.setAttribute("stroke-linejoin", "round")
+  svg.setAttribute("aria-hidden", "true")
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  path.setAttribute("d", "M19 12H5M12 19l-7-7 7-7")
+  svg.append(path)
+  button?.append(svg, elt("span", { textContent: back?.label ?? "" }))
+  if (button) left.append(button)
+  // The title reads as chrome here, in the same voice as the side switcher
+  // opposite it, rather than as a heading the content has to make room for.
+  if (title) left.append(elt("span", { className: "head-title", textContent: title }))
+}
 
 /** A labelled field, because forms here are read once and filled deliberately. */
 const field = (id, label, placeholder, type = "text") =>
@@ -161,25 +198,28 @@ const spaceItem = (value, excerpt) =>
   )
 
 /** Subscribe the sidebar to a catalogue query, keeping the empty state honest. */
-const spacesInSidebar = async (query, excerpt, emptyText) => {
-  clear(dom.list)
-  const draw = liveList(dom.list, ({ value }) => spaceItem(value, excerpt))
-  const subscription = await state.db.map(
-    { query, field: "createdAt", order: "desc" },
-    (event) => {
-      draw(event)
-      show(dom.listEmpty, !dom.list.children.length)
-    }
-  )
-  dom.listEmpty.textContent = emptyText
-  show(dom.listEmpty, !dom.list.children.length)
-  return subscription
-}
+const spacesInSidebar = (query, excerpt, emptyText) =>
+  searchable({
+    query,
+    fields: ["name", "slug"],
+    placeholder: "Search spaces…",
+    subscribe: (narrowed, term) => {
+      clear(dom.list)
+      const draw = liveList(dom.list, ({ value }) => spaceItem(value, excerpt))
+      dom.listEmpty.textContent = emptyFor(term, emptyText)
+      show(dom.listEmpty, true)
+      return state.db.map({ query: narrowed, field: "createdAt", order: "desc" }, (event) => {
+        draw(event)
+        show(dom.listEmpty, !dom.list.children.length)
+      })
+    },
+  })
 
 // ── Creator ──────────────────────────────────────────────────────────
 
 /** The creator's side: the catalogue of spaces, and the tasks inside one. */
 const mountCreator = async () => {
+  setHead()
   dom.newBtn.title = "Spaces are created by clients"
   dom.newBtn.disabled = true
   dom.newBtn.onclick = null
@@ -199,10 +239,11 @@ const mountCreator = async () => {
 
 /** Nothing selected yet: say what the catalogue is instead of showing a void. */
 const renderLobby = () => {
+  setHead({ title: "Pick a space" })
   clear(dom.content)
   dom.content.append(
     section(
-      "Pick a space",
+      null,
       elt("p", {
         className: "hint",
         textContent:
@@ -214,6 +255,7 @@ const renderLobby = () => {
 
 /** Tasks in the open space, live. */
 const renderTasks = async () => {
+  setHead({ title: `Tasks \u00b7 ${state.space}` })
   clear(dom.content)
   const list = elt("tbody")
   const table = elt(
@@ -236,13 +278,12 @@ const renderTasks = async () => {
 
   dom.content.append(
     section(
-      `Tasks · ${state.space}`,
+      null,
       elt(
         "div",
         { className: "row" },
         elt("button", { textContent: "My submissions", onclick: () => renderSubmissions() }),
-        elt("button", { textContent: "My stats", onclick: () => renderStats() }),
-        viewToggle()
+        elt("button", { textContent: "My stats", onclick: () => renderStats() })
       ),
       table
     )
@@ -303,10 +344,11 @@ const renderTasks = async () => {
 
 /** Deliver against a task. The node is owned by its creator and never rewritten. */
 const renderSubmitForm = (taskId, task) => {
+  setHead({ back: { label: "Tasks", onclick: () => render() }, title: `Submit · ${task.title}` })
   clear(dom.content)
   dom.content.append(
     section(
-      `Submit · ${task.title}`,
+      null,
       field("post-url", "Link to the work", "https://…"),
       field("proof", "Proof", "metrics, context, anything worth saying"),
       fileField(),
@@ -400,6 +442,7 @@ const outcomeBar = ({ approved, rejected, pending }) => {
  * queries. There is no analytics service to be out of date.
  */
 const renderStats = async () => {
+  setHead({ back: { label: "Back", onclick: () => render() }, title: "My stats" })
   unmount?.()
   unmount = null
 
@@ -424,8 +467,7 @@ const renderStats = async () => {
 
     dom.content.append(
       section(
-        reviewing ? `Stats · ${state.space}` : "My stats",
-        elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
+        reviewing ? `Stats · ${state.space}` : null,
         figures,
         outcomeBar(s),
         // Say what is not here, so nobody reads a number that does not exist.
@@ -654,13 +696,14 @@ const paintPayout = (root, value) => {
  * it, and both stay on the record.
  */
 const renderResubmitForm = async (submissionId) => {
+  setHead({ back: { label: "Submissions", onclick: () => renderSubmissions() }, title: `Deliver again · attempt ${(result.value.attempt ?? 1) + 1}` })
   const { result } = await state.db.get(submissionId)
   if (!result) return toast("That delivery is no longer here", "error")
 
   clear(dom.content)
   dom.content.append(
     section(
-      `Deliver again · attempt ${(result.value.attempt ?? 1) + 1}`,
+      null,
       elt("p", {
         className: "note",
         textContent:
@@ -671,7 +714,6 @@ const renderResubmitForm = async (submissionId) => {
       elt(
         "div",
         { className: "row" },
-        elt("button", { textContent: "← Back", onclick: () => renderSubmissions() }),
         elt("button", {
           className: "primary",
           textContent: "Submit attempt",
@@ -713,6 +755,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
   unmount = null
 
   const reviewing = can("approve")
+  setHead({ back: { label: "Back", onclick: () => render() }, title: reviewing ? "Submissions" : "My submissions" })
   clear(dom.content)
   const list = elt("tbody")
   const table = elt(
@@ -795,12 +838,10 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
 
   dom.content.append(
     section(
-      reviewing ? "Submissions" : "My submissions",
+      null,
       elt(
         "div",
-        { className: "row" },
-        elt("button", { textContent: "← Back", onclick: () => render() }),
-        viewToggle()
+        { className: "row" }
       ),
       filters,
       bulkBar,
@@ -960,6 +1001,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
 
 /** The client's side: their spaces, and the campaigns inside the open one. */
 const mountClient = async () => {
+  setHead()
   dom.newBtn.title = can("createCampaign") ? "New campaign" : "Your role does not hold `createCampaign`"
   dom.newBtn.disabled = !can("createCampaign")
   dom.newBtn.onclick = () => renderCampaignForm()
@@ -979,10 +1021,11 @@ const mountClient = async () => {
 
 /** Create a client space: a catalogue entry the engine stamps as yours. */
 const renderSpaceForm = () => {
+  setHead({ back: { label: "Back", onclick: () => render() }, title: "Create a client space" })
   clear(dom.content)
   dom.content.append(
     section(
-      "Create a client space",
+      null,
       elt("p", {
         className: "hint",
         textContent:
@@ -1013,17 +1056,17 @@ const renderSpaceForm = () => {
 
 /** Campaigns in the open space, live, each with its tasks one traversal away. */
 const renderCampaigns = async () => {
+  setHead({ title: `Campaigns \u00b7 ${state.space}` })
   clear(dom.content)
   const list = elt("tbody")
   dom.content.append(
     section(
-      `Campaigns · ${state.space}`,
+      null,
       elt(
         "div",
         { className: "row" },
         elt("button", { textContent: "Submissions", onclick: () => renderSubmissions() }),
-        elt("button", { textContent: "Stats", onclick: () => renderStats() }),
-        viewToggle()
+        elt("button", { textContent: "Stats", onclick: () => renderStats() })
       ),
       elt(
         "table",
@@ -1079,6 +1122,7 @@ const renderCampaigns = async () => {
 const renderCampaign = async (campaignId, campaign) => {
   unmount?.()
   unmount = null
+  setHead({ back: { label: "Campaigns", onclick: () => render() }, title: campaign.title })
 
   clear(dom.content)
   const list = elt("tbody")
@@ -1101,20 +1145,18 @@ const renderCampaign = async (campaignId, campaign) => {
   )
   dom.content.append(
     section(
-      campaign.title,
+      null,
       elt("p", { className: "item-excerpt", textContent: campaign.brief }),
       elt(
         "div",
         { className: "row" },
-        elt("button", { textContent: "← Campaigns", onclick: () => render() }),
         elt("button", {
           className: "primary",
           textContent: "Add task",
           disabled: !can("assign"),
           title: can("assign") ? "Add a task to this campaign" : "Only the client can assign work",
           onclick: () => renderTaskForm(campaignId, campaign),
-        }),
-        viewToggle()
+        })
       ),
       table
     )
@@ -1174,6 +1216,7 @@ const renderCampaign = async (campaignId, campaign) => {
 
 /** Change who a task is asked of — or reopen it to the space. */
 const renderAssignForm = async (taskId, task, campaignId, campaign) => {
+  setHead({ back: { label: "Back", onclick: () => renderCampaign(campaignId, campaign) }, title: `Assign \u00b7 ${task.title}` })
   unmount?.()
   const picker = await creatorPicker("assign-to", task.assignee)
   unmount = picker.unsubscribe
@@ -1181,12 +1224,11 @@ const renderAssignForm = async (taskId, task, campaignId, campaign) => {
   clear(dom.content)
   dom.content.append(
     section(
-      `Assign · ${task.title}`,
+      null,
       picker.node,
       elt(
         "div",
         { className: "row" },
-        elt("button", { textContent: "← Back", onclick: () => renderCampaign(campaignId, campaign) }),
         elt("button", {
           className: "primary",
           textContent: "Save",
@@ -1207,11 +1249,12 @@ const renderAssignForm = async (taskId, task, campaignId, campaign) => {
 }
 
 const renderCampaignForm = () => {
+  setHead({ back: { label: "Campaigns", onclick: () => render() }, title: "New campaign" })
   if (!state.space) return toast("Open a space first", "warning")
   clear(dom.content)
   dom.content.append(
     section(
-      "New campaign",
+      null,
       field("campaign-title", "Title", "Launch week"),
       field("campaign-brief", "Brief", "what the campaign is for"),
       elt("button", {
@@ -1280,6 +1323,7 @@ const creatorPicker = async (id, selected = null) => {
 }
 
 const renderTaskForm = async (campaignId, campaign) => {
+  setHead({ back: { label: "Back", onclick: () => renderCampaign(campaignId, campaign) }, title: `New task \u00b7 ${campaign.title}` })
   unmount?.()
   const picker = await creatorPicker("task-assignee")
   unmount = picker.unsubscribe
@@ -1287,7 +1331,7 @@ const renderTaskForm = async (campaignId, campaign) => {
   clear(dom.content)
   dom.content.append(
     section(
-      `New task · ${campaign.title}`,
+      null,
       field("task-title", "Title", "Post a thread about the launch"),
       field("task-req", "Requirements", "what counts as done"),
       picker.node,
@@ -1322,6 +1366,7 @@ const renderTaskForm = async (campaignId, campaign) => {
  * each node defended by its author's signature.
  */
 const mountAdmin = async () => {
+  setHead({ title: "Overview" })
   dom.newBtn.disabled = true
   dom.newBtn.title = "Nothing to create here"
 
@@ -1406,7 +1451,17 @@ const mountAdmin = async () => {
     show(dom.listEmpty, !dom.list.children.length)
   }
 
-  const users = await state.db.map({ query: { role: { $exists: true } } }, people)
+  const users = await searchable({
+    query: { role: { $exists: true } },
+    fields: ["displayName", "requestedSide", "role"],
+    placeholder: "Search people…",
+    subscribe: (narrowed, term) => {
+      clear(dom.list)
+      dom.listEmpty.textContent = emptyFor(term, "No clients or creators yet.")
+      show(dom.listEmpty, true)
+      return state.db.map({ query: narrowed }, people)
+    },
+  })
   const catalogue = await state.db.map(
     { query: { type: "client" }, field: "createdAt", order: "desc" },
     liveList(spaces, ({ value }) =>
@@ -1428,8 +1483,6 @@ const mountAdmin = async () => {
     )
   )
 
-  // An honest empty state: nobody has joined the platform yet.
-  dom.listEmpty.textContent = "No clients or creators yet."
   show(dom.listEmpty, !dom.list.children.length)
 
   return () => {

@@ -55,7 +55,10 @@ test("deliveries decided together are recorded as one act", async ({ browser }) 
   }
 
   // ── The reviewer's queue ─────────────────────────────────────────
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   await expect(alice.page.locator("[data-submission]")).toHaveCount(2)
 

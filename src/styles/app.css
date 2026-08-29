@@ -129,6 +129,16 @@ body {
   font-size: 13px;
 }
 
+/* No list has claimed the box yet, so it says so rather than accepting typing
+   it cannot answer. */
+.sidebar-head input.search:disabled {
+  /* Overriding the generic `input:disabled`, which paints a field background
+     the box does not have: here it sits inside the head band. */
+  background: none;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .search-icon {
   flex: 0 0 15px;
   width: 15px;
@@ -172,14 +182,38 @@ body {
 
 /* ── Side switcher: the three views over one graph ─────────────────── */
 
+/* Words divided by a rule, not three buttons. The switcher sits in chrome next
+   to the layout control, so it should read as one thing you are choosing
+   within — the way a set of tabs does — rather than as three offers. */
 .sides {
   display: flex;
-  gap: var(--space-2);
+  align-items: center;
+}
+
+.side-btn {
+  padding: 4px var(--space-3);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.side-btn:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+/* The separator is a border rather than a character: it aligns itself, and
+   there is no glyph to inherit a colour it should not have. */
+.side-btn + .side-btn {
+  border-left: 1px solid var(--border-subtle);
 }
 
 .side-btn[aria-current="true"] {
-  border-color: var(--accent);
   color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── Lists ─────────────────────────────────────────────────────────── */
@@ -747,6 +781,66 @@ button.danger:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* ── The band across the content, level with the search head ───────────
+   Chrome bands share one height (48px): top bar, sidebar head, this, and the
+   status bar. Navigation and the layout switch live here rather than inside
+   the content, which is for what the page is about. */
+.content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* The view's name, in the same voice as the switcher opposite it — chrome, not
+   a heading the content has to make room for. */
+.head-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+#head-left {
+  gap: var(--space-3);
+}
+
+/* A bare mark, not a control in a box. These sit in chrome, where a button's
+   border would compete with the bands themselves. */
+.head-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.head-btn:hover {
+  color: var(--accent);
+  background: none;
+}
+
+.head-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Align the mark, not the hit area: the icon pads itself, so pull the row back
+   by that padding and what lines up is what the eye can see. */
+#head-left {
+  margin-left: -4px;
+}
+
+#head-right {
+  margin-right: -4px;
 }
 
 /* Rhythm inside a section. A toolbar sitting directly on the list it governs

@@ -2,8 +2,8 @@
  * A queue longer than the screen.
  *
  * A review queue with filters and bulk selection is what any list becomes once
- * it is busy — and the moment it is busy, a view that loads every row is a
- * view that stops working. The window is the engine's
+ * it is busy — and the moment it is busy, a view that loads every row is a view
+ * that stops working. The window is the engine's
  * job here: `$limit` with a cursor that is a node id rather than an offset, so a
  * delivery arriving while somebody is reading page two does not shuffle the
  * page under them.
@@ -82,7 +82,10 @@ test("a long queue is paged, and the page stays live", async ({ browser }) => {
   )
 
   // ── The reviewer's queue is bounded ──────────────────────────────
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
 
   await expect(alice.page.locator("[data-submission]")).toHaveCount(PAGE_SIZE)

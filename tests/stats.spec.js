@@ -26,7 +26,7 @@ test("figures follow the work, on both sides of it", async ({ browser }) => {
   await expect(alice.page.getByText("median time to decide")).toBeVisible()
 
   // Put one piece of work through the whole cycle.
-  await alice.page.getByRole("button", { name: "← Back" }).click()
+  await alice.page.getByRole("button", { name: "Back" }).click()
   await alice.page.locator("#new-btn").click()
   await alice.page.locator("#campaign-title").fill("Launch week")
   await alice.page.locator("#campaign-brief").fill("Announce 2.0.")
@@ -56,7 +56,10 @@ test("figures follow the work, on both sides of it", async ({ browser }) => {
 
   // The client decides, and the figures move on their own — no reload, no
   // refresh button, nothing recalculated by a server.
-  await alice.page.getByRole("button", { name: "← Campaigns" }).click()
+  await alice.page.getByRole("button", { name: "Campaigns" }).click()
+  // Going back re-renders the client's side; clicking straight through races
+  // that render and lands back where it started. Wait for the list to settle.
+  await expect(alice.page.getByRole("button", { name: "Open" })).toBeVisible()
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const card = alice.page.locator("[data-submission]").first()
   await expect(card).toBeVisible()
@@ -69,7 +72,7 @@ test("figures follow the work, on both sides of it", async ({ browser }) => {
   await expect(bobRate.locator(".stat-value")).toHaveText("100%")
 
   // And the client sees the same number, because it is the same graph.
-  await alice.page.getByRole("button", { name: "← Back" }).click()
+  await alice.page.getByRole("button", { name: "Back" }).click()
   await alice.page.getByRole("button", { name: "Stats" }).click()
   const aliceRate = alice.page.locator(".card", { hasText: "approval rate" })
   await expect(aliceRate.locator(".stat-value")).toHaveText("100%")
