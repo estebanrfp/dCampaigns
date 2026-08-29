@@ -214,7 +214,25 @@ const renderLobby = () => {
 /** Tasks in the open space, live. */
 const renderTasks = async () => {
   clear(dom.content)
-  const list = elt("div", { className: "card-grid" })
+  const list = elt("tbody")
+  const table = elt(
+    "table",
+    { className: "queue" },
+    elt(
+      "thead",
+      {},
+      elt(
+        "tr",
+        {},
+        elt("th", { textContent: "Task" }),
+        elt("th", { className: "col-who", textContent: "Asked of" }),
+        elt("th", { className: "col-verdict", textContent: "Status" }),
+        elt("th", { className: "col-actions" })
+      )
+    ),
+    list
+  )
+
   dom.content.append(
     section(
       `Tasks · ${state.space}`,
@@ -224,47 +242,59 @@ const renderTasks = async () => {
         elt("button", { textContent: "My submissions", onclick: () => renderSubmissions() }),
         elt("button", { textContent: "My stats", onclick: () => renderStats() })
       ),
-      list
+      table
     )
   )
 
   const { unsubscribe } = await state.db.map(
     { query: { type: "task", space: state.space }, field: "createdAt", order: "desc" },
-    liveList(list, ({ id, value }) =>
-      elt(
-        "article",
-        { className: "card" },
-        elt("div", { className: "item-title", textContent: value.title }),
-        elt("p", { className: "item-excerpt", textContent: value.requirements }),
+    liveList(list, ({ id, value }) => {
+      const mine = !value.assignee || value.assignee === state.address
+      return elt(
+        "tr",
+        {},
         elt(
-          "div",
-          { className: "row spread" },
-          // A task asked of someone else is still visible — the graph is shared
-          // and pretending otherwise would be theatre — but it is not yours.
-          elt("span", {
-            className: "stat-label",
-            textContent: !value.assignee
-              ? "open to anyone"
-              : value.assignee === state.address
-                ? "asked of you"
-                : `asked of ${state.db.sm.abbrAddr(value.assignee)}`,
-          }),
-          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
+          "td",
+          {},
+          elt(
+            "div",
+            { className: "cell-stack" },
+            elt("span", { className: "item-title", textContent: value.title }),
+            elt("span", { className: "item-excerpt", textContent: value.requirements })
+          )
         ),
-        // Disabled, not hidden: a locked control teaches the trust model,
-        // a missing one just looks broken.
-        elt("button", {
-          textContent: "Submit work",
-          disabled: !can("submit") || (value.assignee && value.assignee !== state.address),
-          title: !can("submit")
-            ? "Earn the creator role to deliver"
-            : value.assignee && value.assignee !== state.address
-              ? "This task was asked of someone else"
-              : "Submit work for this task",
-          onclick: () => renderSubmitForm(id, value),
-        })
+        // A task asked of someone else is still visible — the graph is shared
+        // and pretending otherwise would be theatre — but it is not yours.
+        // Under a column headed "Asked of", the cell that matters most to a
+        // creator is the one that says it is theirs — an address would make
+        // them compare it with their own to find out.
+        elt("td", { className: "col-who" },
+          !value.assignee
+            ? elt("span", { className: "stat-label", textContent: "anyone" })
+            : value.assignee === state.address
+              ? elt("span", { className: "item-title", textContent: "you" })
+              : addr(state.db, value.assignee)),
+        elt("td", { className: "col-verdict" },
+          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })),
+        elt(
+          "td",
+          { className: "col-actions" },
+          // Disabled, not hidden: a locked control teaches the trust model,
+          // a missing one just looks broken. Always on screen rather than
+          // revealed on hover, because it is the row's whole purpose.
+          elt("button", {
+            textContent: "Submit work",
+            disabled: !can("submit") || !mine,
+            title: !can("submit")
+              ? "Earn the creator role to deliver"
+              : mine
+                ? "Submit work for this task"
+                : "This task was asked of someone else",
+            onclick: () => renderSubmitForm(id, value),
+          })
+        )
       )
-    )
+    })
   )
   return unsubscribe
 }
@@ -977,7 +1007,7 @@ const renderSpaceForm = () => {
 /** Campaigns in the open space, live, each with its tasks one traversal away. */
 const renderCampaigns = async () => {
   clear(dom.content)
-  const list = elt("div", { className: "card-grid" })
+  const list = elt("tbody")
   dom.content.append(
     section(
       `Campaigns · ${state.space}`,
@@ -987,7 +1017,22 @@ const renderCampaigns = async () => {
         elt("button", { textContent: "Submissions", onclick: () => renderSubmissions() }),
         elt("button", { textContent: "Stats", onclick: () => renderStats() })
       ),
-      list
+      elt(
+        "table",
+        { className: "queue" },
+        elt(
+          "thead",
+          {},
+          elt(
+            "tr",
+            {},
+            elt("th", { textContent: "Campaign" }),
+            elt("th", { className: "col-who", textContent: "Created" }),
+            elt("th", { className: "col-actions" })
+          )
+        ),
+        list
+      )
     )
   )
 
@@ -995,16 +1040,21 @@ const renderCampaigns = async () => {
     { query: { type: "campaign", space: state.space }, field: "createdAt", order: "desc" },
     liveList(list, ({ id, value }) =>
       elt(
-        "article",
-        { className: "card" },
-        elt("div", { className: "item-title", textContent: value.title }),
-        elt("p", { className: "item-excerpt", textContent: value.brief }),
+        "tr",
+        {},
         elt(
-          "div",
-          { className: "row spread" },
-          elt("span", { className: "addr", textContent: when(value.createdAt) }),
-          elt("button", { textContent: "Open", onclick: () => renderCampaign(id, value) })
-        )
+          "td",
+          {},
+          elt(
+            "div",
+            { className: "cell-stack" },
+            elt("span", { className: "item-title", textContent: value.title }),
+            elt("span", { className: "item-excerpt", textContent: value.brief })
+          )
+        ),
+        elt("td", { className: "col-who" }, elt("span", { className: "addr", textContent: when(value.createdAt) })),
+        elt("td", { className: "col-actions" },
+          elt("button", { textContent: "Open", onclick: () => renderCampaign(id, value) }))
       )
     )
   )
@@ -1023,7 +1073,24 @@ const renderCampaign = async (campaignId, campaign) => {
   unmount = null
 
   clear(dom.content)
-  const list = elt("div", { className: "card-grid" })
+  const list = elt("tbody")
+  const table = elt(
+    "table",
+    { className: "queue" },
+    elt(
+      "thead",
+      {},
+      elt(
+        "tr",
+        {},
+        elt("th", { textContent: "Task" }),
+        elt("th", { className: "col-who", textContent: "Asked of" }),
+        elt("th", { className: "col-verdict", textContent: "Status" }),
+        elt("th", { className: "col-actions" })
+      )
+    ),
+    list
+  )
   dom.content.append(
     section(
       campaign.title,
@@ -1040,7 +1107,7 @@ const renderCampaign = async (campaignId, campaign) => {
           onclick: () => renderTaskForm(campaignId, campaign),
         })
       ),
-      list
+      table
     )
   )
 
@@ -1055,28 +1122,41 @@ const renderCampaign = async (campaignId, campaign) => {
   const { unsubscribe } = await tasksOfCampaign(state.db, campaignId, (event) =>
     liveList(list, ({ id, value }) =>
       elt(
-        "article",
-        { className: "card" },
-        elt("div", { className: "item-title", textContent: value.title }),
-        elt("p", { className: "item-excerpt", textContent: value.requirements }),
+        "tr",
+        {},
         elt(
-          "div",
-          { className: "row spread" },
-          // Who was asked. An unassigned task says so rather than saying nothing.
-          elt("span", {
-            className: "stat-label",
-            textContent: value.assignee
-              ? `→ ${nameOf.get(value.assignee) ?? state.db.sm.abbrAddr(value.assignee)}`
-              : "open to anyone",
-          }),
-          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })
+          "td",
+          {},
+          elt(
+            "div",
+            { className: "cell-stack" },
+            elt("span", { className: "item-title", textContent: value.title }),
+            elt("span", { className: "item-excerpt", textContent: value.requirements })
+          )
         ),
-        can("assign")
-          ? elt("button", {
-              textContent: value.assignee ? "Reassign" : "Assign",
-              onclick: () => renderAssignForm(id, value, campaignId, campaign),
-            })
-          : null
+        // Who was asked. Named where a name is known, because a client reads
+        // this to decide who to chase — and an unassigned task says so rather
+        // than leaving the cell blank.
+        elt("td", { className: "col-who" },
+          elt("span", {
+            className: value.assignee ? "item-title" : "stat-label",
+            textContent: value.assignee
+              ? (nameOf.get(value.assignee) ?? state.db.sm.abbrAddr(value.assignee))
+              : "anyone",
+          })),
+        elt("td", { className: "col-verdict" },
+          elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })),
+        elt(
+          "td",
+          { className: "col-actions" },
+          can("assign")
+            ? elt("div", { className: "row-actions" },
+                elt("button", {
+                  textContent: value.assignee ? "Reassign" : "Assign",
+                  onclick: () => renderAssignForm(id, value, campaignId, campaign),
+                }))
+            : null
+        )
       )
     )(event)
   )
@@ -1242,8 +1322,28 @@ const mountAdmin = async () => {
   // The network first, because it is the thing that makes the rest possible and
   // the one panel a centralised product has no way to draw.
   const network = elt("div", {})
-  const spaces = elt("div", { className: "card-grid" })
-  dom.content.append(section("The network", network), section("Client spaces", spaces))
+  const spaces = elt("tbody")
+  dom.content.append(
+    section("The network", network),
+    section(
+      "Client spaces",
+      elt(
+        "table",
+        { className: "queue" },
+        elt(
+          "thead",
+          {},
+          elt(
+            "tr",
+            {},
+            elt("th", { textContent: "Space" }),
+            elt("th", { className: "col-who", textContent: "Owner" })
+          )
+        ),
+        spaces
+      )
+    )
+  )
   const stopMap = livePeerMap(state.db, network)
 
   const drawPerson = liveList(dom.list, ({ id, value }) => {
@@ -1302,11 +1402,19 @@ const mountAdmin = async () => {
     { query: { type: "client" }, field: "createdAt", order: "desc" },
     liveList(spaces, ({ value }) =>
       elt(
-        "article",
-        { className: "card" },
-        elt("div", { className: "item-title", textContent: value.name }),
-        elt("div", { className: "item-excerpt", textContent: value.slug }),
-        addr(state.db, value.owner)
+        "tr",
+        {},
+        elt(
+          "td",
+          {},
+          elt(
+            "div",
+            { className: "cell-stack" },
+            elt("span", { className: "item-title", textContent: value.name }),
+            elt("span", { className: "item-excerpt", textContent: value.slug })
+          )
+        ),
+        elt("td", { className: "col-who" }, addr(state.db, value.owner))
       )
     )
   )

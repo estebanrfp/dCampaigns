@@ -77,12 +77,25 @@ export const livePeerMap = (db, mount) => {
 
   const ensureMap = () => {
     if (map || !window.L) return map
-    map = L.map(plot, { zoomControl: false, attributionControl: true, worldCopyJump: true }).setView([20, 0], 1)
+    // `scrollWheelZoom` off deliberately: a map inside a scrolling panel that
+    // swallows the wheel leaves the reader unable to scroll past it, and having
+    // zoomed something they were only trying to scroll by. The buttons zoom.
+    map = L.map(plot, {
+      zoomControl: false,
+      attributionControl: true,
+      worldCopyJump: true,
+      scrollWheelZoom: false,
+    }).setView([20, 0], 1)
     basemap = L.tileLayer(BASEMAPS[palette()], {
       maxZoom: 12,
       attribution: "Esri",
     }).addTo(map)
     L.control.zoom({ position: "bottomright" }).addTo(map)
+    // Leaflet measures its container once. This panel is built and appended in
+    // the same tick, so the first measurement can be of a box that has not been
+    // laid out yet — which leaves the projection wrong until something forces a
+    // re-measure. Ask for one as soon as the layout has settled.
+    requestAnimationFrame(() => map?.invalidateSize())
     return map
   }
 

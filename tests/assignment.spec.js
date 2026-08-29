@@ -47,11 +47,14 @@ test("a task asked of one creator is not deliverable by another", async ({ brows
 
   // The client sees who was asked.
   await expect(alice.page.getByText("Post a thread")).toBeVisible()
-  await expect(alice.page.getByText("→ Bob")).toBeVisible()
+  // The arrow went with the card: a column headed "Asked of" already
+  // says what the name means.
+  await expect(alice.page.getByText("Bob", { exact: true })).toBeVisible()
 
   // Bob sees it is his, and can deliver.
   await expect(bob.page.getByText("Post a thread")).toBeVisible()
-  await expect(bob.page.getByText("asked of you")).toBeVisible()
+  // The column is headed "Asked of"; the cell says whose it is.
+  await expect(bob.page.getByText("you", { exact: true })).toBeVisible()
   await expect(bob.page.getByRole("button", { name: "Submit work" })).toBeEnabled()
 
   // The operator is in the same room but was not asked: the control is there,
@@ -69,7 +72,7 @@ test("a task asked of one creator is not deliverable by another", async ({ brows
   await alice.page.locator("#assign-to").selectOption("")
   await alice.page.getByRole("button", { name: "Save" }).click()
 
-  await expect(alice.page.getByText("open to anyone")).toBeVisible()
+  await expect(alice.page.getByText("anyone", { exact: true })).toBeVisible()
   await expect(operator.page.getByRole("button", { name: "Submit work" })).toBeEnabled()
 
   await operator.context.close()
