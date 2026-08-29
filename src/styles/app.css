@@ -276,6 +276,17 @@ body {
 .verdict[data-verdict="pending"] {
   color: var(--warn);
 }
+.verdict[data-verdict="paid"] {
+  color: var(--violet);
+}
+
+/* An attempt beyond the first: the history the model refuses to overwrite. */
+.attempt-tag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
 
 /* ── Stats: numbers first, then the shape of them ──────────────────── */
 

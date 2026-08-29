@@ -16,6 +16,8 @@ import {
   createTask,
   creators,
   decideSubmission,
+  recordPayout,
+  resubmitWork,
   submitWork,
   tasksOfCampaign,
 } from "../db/model.js"
@@ -355,29 +357,33 @@ const renderStats = async () => {
 const submissionCard = (id, value, reviewing) => {
   const slot = elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: "pending" })
 
-  const actions = reviewing
-    ? elt(
-        "div",
-        { className: "row" },
-        elt("input", { type: "text", placeholder: "note (optional)", dataset: { note: id } }),
-        elt("button", {
-          textContent: "Approve",
-          onclick: () => decide(id, value, "approved"),
-        }),
-        elt("button", {
-          className: "danger",
-          textContent: "Reject",
-          onclick: () => decide(id, value, "rejected"),
-        })
-      )
-    : null
+  // Deciding and what-comes-next share one slot: a delivery is either awaiting
+  // a verdict or acting on the one it got, never both. The verdict arrives on
+  // its own subscription, so this is filled in by `paintVerdict`.
+  const actions = elt("div", { className: "row", dataset: { actions: id } })
+  if (reviewing) {
+    actions.append(
+      elt("input", { type: "text", placeholder: "note (optional)", dataset: { note: id } }),
+      elt("button", { textContent: "Approve", onclick: () => decide(id, value, "approved") }),
+      elt("button", { className: "danger", textContent: "Reject", onclick: () => decide(id, value, "rejected") })
+    )
+  }
+
+  // An attempt beyond the first is worth saying out loud: it is the history the
+  // model refuses to overwrite, and the reviewer is reading a second answer to
+  // a brief they already sent back once.
+  const heading = value.attempt > 1
+    ? elt("div", { className: "row spread" },
+        elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" }),
+        elt("span", { className: "attempt-tag", textContent: `attempt ${value.attempt}` }))
+    : elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" })
 
   return elt(
     "article",
     // The creator rides on the card so a verdict can be judged against it the
     // moment it is painted: a self-signed approval is refused without a lookup.
     { className: "card", dataset: { submission: id, creator: value.creator } },
-    elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" }),
+    heading,
     elt("p", { className: "item-excerpt", textContent: value.proof }),
     elt("div", { className: "row spread" }, addr(state.db, value.creator), slot),
     actions
@@ -433,6 +439,127 @@ const paintVerdict = (root, value) => {
 
   slot.dataset.verdict = value.verdict
   slot.textContent = value.note ? `${value.verdict} · ${value.note}` : value.verdict
+
+  // The decision has been made, so the controls that make it are done — and
+  // what replaces them is whatever this identity can legitimately do next.
+  const actions = card.querySelector(`[data-actions]`)
+  if (!actions) return
+  clear(actions)
+
+  const mine = card.dataset.creator === state.address
+  if (value.verdict === "rejected" && mine) {
+    actions.append(
+      elt("button", {
+        className: "primary",
+        textContent: "Deliver again",
+        onclick: () => renderResubmitForm(value.submissionId),
+      })
+    )
+    return
+  }
+
+  if (value.verdict === "approved" && can("approve") && !mine) {
+    actions.append(
+      elt("input", { type: "text", placeholder: "amount", dataset: { amount: value.submissionId } }),
+      elt("button", {
+        textContent: "Record payment",
+        onclick: () => payFor(value.submissionId, card.dataset.creator),
+      })
+    )
+  }
+}
+
+/**
+ * Settle an approved delivery.
+ *
+ * A signed statement by the payer, owned by them, sitting beside the approval
+ * rather than inside it. No money moves here — the decision is what has to be
+ * attributable, and a rail can be hung off a signed instruction later.
+ */
+const payFor = async (submissionId, creator) => {
+  const raw = document.querySelector(`[data-amount="${CSS.escape(submissionId)}"]`)?.value.trim()
+  const amount = Number(raw)
+  if (!raw || !Number.isFinite(amount) || amount <= 0) return toast("Enter an amount first", "error")
+  try {
+    await recordPayout(state.db, {
+      space: state.space,
+      submissionId,
+      amount,
+      currency: "USD",
+      payer: state.address,
+      creator,
+    })
+    toast("Payment recorded — signed by you", "success")
+  } catch (error) {
+    toast(error.message ?? "Could not record the payment", "error")
+  }
+}
+
+/** Paint a settled payment onto the delivery it belongs to. */
+const paintPayout = (root, value) => {
+  const card = root.querySelector(`[data-submission="${CSS.escape(value.submissionId)}"]`)
+  const actions = card?.querySelector(`[data-actions]`)
+  if (!actions) return
+  clear(actions)
+  actions.append(
+    elt("span", {
+      className: "verdict",
+      dataset: { verdict: "paid" },
+      textContent: `paid ${value.amount} ${value.currency}`,
+    })
+  )
+}
+
+/**
+ * Deliver again, after a rejection.
+ *
+ * A new attempt, not an edit: the rejected one keeps the verdict that rejected
+ * it, and both stay on the record.
+ */
+const renderResubmitForm = async (submissionId) => {
+  const { result } = await state.db.get(submissionId)
+  if (!result) return toast("That delivery is no longer here", "error")
+
+  clear(dom.content)
+  dom.content.append(
+    section(
+      `Deliver again · attempt ${(result.value.attempt ?? 1) + 1}`,
+      elt("p", {
+        className: "note",
+        textContent:
+          "The rejected delivery stays exactly as it is, with the reviewer's signed verdict attached. This is a new attempt beside it, not a correction of it.",
+      }),
+      field("post-url", "Link to the work", "https://…"),
+      field("proof", "Proof", "screenshot link, metrics, anything verifiable"),
+      elt(
+        "div",
+        { className: "row" },
+        elt("button", { textContent: "← Back", onclick: () => renderSubmissions() }),
+        elt("button", {
+          className: "primary",
+          textContent: "Submit attempt",
+          onclick: async () => {
+            try {
+              // The reviewer is the space's owner, read from the catalogue entry
+              // whose `owner` the engine stamped — the same source the first
+              // attempt used.
+              const entry = await awaitNode(state.db, `client:${state.space}`)
+              if (!entry) return toast("This space is missing from the catalogue", "error")
+              await resubmitWork(state.db, { id: submissionId, value: result.value }, {
+                postUrl: $("post-url").value.trim(),
+                proof: $("proof").value.trim(),
+                reviewer: entry.value.owner,
+              })
+              toast("Delivered again — the earlier attempt stays on the record", "success")
+              await renderSubmissions()
+            } catch (error) {
+              toast(error.message ?? "Could not deliver again", "error")
+            }
+          },
+        })
+      )
+    )
+  )
 }
 
 /**
@@ -457,6 +584,23 @@ const renderSubmissions = async () => {
     )
   )
 
+  // What is known about each delivery, kept beside the list.
+  //
+  // Three subscriptions feed one card, and a card can be rebuilt at any moment:
+  // linking a resubmission to the attempt it answers touches that attempt, so
+  // its row is re-rendered and arrives blank. Without somewhere to read the
+  // verdict back from, a delivery that was rejected minutes ago silently
+  // returns to "pending" — the interface forgetting something the graph still
+  // knows. So each claim is remembered here and re-applied after any render.
+  const known = { verdicts: new Map(), payouts: new Map() }
+  const repaint = (id) => {
+    const verdict = known.verdicts.get(id)
+    if (verdict) paintVerdict(list, verdict)
+    const payout = known.payouts.get(id)
+    if (payout) paintPayout(list, payout)
+  }
+
+  const rows = liveList(list, ({ id, value }) => submissionCard(id, value, reviewing))
   const submissions = await state.db.map(
     {
       query: reviewing
@@ -465,18 +609,31 @@ const renderSubmissions = async () => {
       field: "submittedAt",
       order: "desc",
     },
-    liveList(list, ({ id, value }) => submissionCard(id, value, reviewing))
+    (event) => {
+      rows(event)
+      repaint(event.id)
+    }
   )
 
-  // Verdicts are their own nodes, so they get their own subscription and are
-  // painted onto whichever cards are already on screen.
+  // Verdicts are their own nodes, so they get their own subscription.
   const verdicts = await state.db.map({ query: { type: "approval", space: state.space } }, ({ value, action }) => {
-    if (action !== "removed" && value) paintVerdict(list, value)
+    if (action === "removed" || !value) return
+    known.verdicts.set(value.submissionId, value)
+    paintVerdict(list, value)
+  })
+
+  // And so is the payment: three claims by three moments, which is the shape of
+  // the data rather than an accident of it.
+  const payouts = await state.db.map({ query: { type: "payout", space: state.space } }, ({ value, action }) => {
+    if (action === "removed" || !value) return
+    known.payouts.set(value.submissionId, value)
+    paintPayout(list, value)
   })
 
   unmount = () => {
     submissions.unsubscribe?.()
     verdicts.unsubscribe?.()
+    payouts.unsubscribe?.()
   }
 }
 

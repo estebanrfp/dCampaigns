@@ -256,7 +256,12 @@ export const creators = (db) => db.map({ query: { requestedSide: "creator" } })
  * @param {{space: string, taskId: string, postUrl: string, proof: string, creator: string, reviewer: string}} submission
  * @returns {Promise<string>} The node id.
  */
-export const submitWork = async (db, { space, taskId, postUrl, proof, creator, reviewer }) => {
+export const submitWork = async (db, { space, taskId, postUrl, proof, creator, reviewer, supersedes = null }) => {
+  // A resubmission is a new attempt, never an edit of the rejected one. The
+  // number is read from the delivery being replaced, so the chain counts itself.
+  const previous = supersedes ? (await db.get(supersedes)).result?.value : null
+  const attempt = (previous?.attempt ?? 0) + 1
+
   const id = await db.sm.acls.set({
     type: "submission",
     space,
@@ -264,12 +269,43 @@ export const submitWork = async (db, { space, taskId, postUrl, proof, creator, r
     postUrl,
     proof,
     creator,
+    attempt,
+    supersedes,
     submittedAt: now(),
   })
   await db.sm.acls.grant(id, reviewer, "read")
   if (creator !== SUPERADMIN.address) await db.sm.acls.grant(id, SUPERADMIN.address, "delete")
+
+  // The edge makes the history walkable in one traversal rather than a loop of
+  // reads: `$edge` from any attempt reaches the one that answered it.
+  if (supersedes) await db.link(supersedes, id)
   return id
 }
+
+/**
+ * Deliver again after a rejection.
+ *
+ * The rejected attempt stays exactly as it was, with the verdict that rejected
+ * it still attached and still signed by the reviewer. Nothing is overwritten,
+ * so the record shows what was asked, what was delivered, why it came back, and
+ * what changed — which is the difference between a signed history and a status
+ * column that only remembers its last value.
+ *
+ * @param {object} db - The database.
+ * @param {object} previous - The rejected submission `{ id, value }`.
+ * @param {{postUrl: string, proof: string, reviewer: string}} attempt
+ * @returns {Promise<string>} The new submission's node id.
+ */
+export const resubmitWork = (db, previous, { postUrl, proof, reviewer }) =>
+  submitWork(db, {
+    space: previous.value.space,
+    taskId: previous.value.taskId,
+    creator: previous.value.creator,
+    postUrl,
+    proof,
+    reviewer,
+    supersedes: previous.id,
+  })
 
 /**
  * Decide on a submission.
@@ -293,7 +329,72 @@ export const decideSubmission = async (db, { space, submissionId, verdict, note,
   return id
 }
 
+/**
+ * Record that a delivery was paid for.
+ *
+ * The third link in the chain, and the one a marketplace is finally about. It
+ * is a claim by the payer — *I owe this, for this work, on this date* — signed
+ * with their key and owned by them, exactly like the verdict before it. The
+ * approval is not touched, so the record of what was accepted and the record of
+ * what was settled stay two statements by two moments, each verifiable alone.
+ *
+ * This does not move money. It is the decision, which is the part that has to
+ * be attributable: a rail can be attached to a signed instruction later, and
+ * whatever settles it can be reconciled against a record nobody could have
+ * written on someone else's behalf.
+ *
+ * @param {object} db - The database.
+ * @param {{space: string, submissionId: string, amount: number, currency: string, payer: string, creator: string, note?: string}} payout
+ * @returns {Promise<string>} The node id.
+ */
+export const recordPayout = async (db, { space, submissionId, amount, currency, payer, creator, note = "" }) => {
+  const id = await db.sm.acls.set(
+    { type: "payout", space, submissionId, amount, currency, note, payer, decidedAt: now() },
+    `payout:${submissionId}`
+  )
+  // The creator can read what was decided about their own work — and, holding
+  // the payer's signature on their replica, can show it to anyone.
+  await db.sm.acls.grant(id, creator, "read")
+  if (payer !== SUPERADMIN.address) await db.sm.acls.grant(id, SUPERADMIN.address, "delete")
+  return id
+}
+
 // ── Queries ──────────────────────────────────────────────────────────
+
+/**
+ * Every delivery made against a task, oldest attempt first.
+ *
+ * Read as a history rather than a list: attempt 1 and the verdict that sent it
+ * back, then attempt 2 and what happened to it. Nothing here was rewritten to
+ * produce this — each row is the node its author signed.
+ *
+ * @param {object} db - The database.
+ * @param {string} taskId
+ * @param {Function} [callback] - Pass one to subscribe in real time.
+ * @returns {Promise<object>} `{ results, unsubscribe? }`
+ */
+export const attemptsOfTask = (db, taskId, callback) =>
+  db.map({ query: { type: "submission", taskId }, field: "attempt", order: "asc" }, callback)
+
+/**
+ * The deliveries that had to be made twice.
+ *
+ * An operator's question, not a demonstration of an operator: work that came
+ * back tells you where the brief was unclear or the creator is struggling, and
+ * it is the first filter anyone reaches for. The engine answers it with `$gt`
+ * over the whole graph rather than the view fetching everything and counting —
+ * which is what keeps it honest once the graph outgrows the screen.
+ *
+ * @param {object} db - The database.
+ * @param {string} space
+ * @param {Function} [callback] - Pass one to subscribe in real time.
+ * @returns {Promise<object>} `{ results, unsubscribe? }`
+ */
+export const reworkedSubmissions = (db, space, callback) =>
+  db.map(
+    { query: { type: "submission", space, attempt: { $gt: 1 } }, field: "submittedAt", order: "desc" },
+    callback
+  )
 
 /**
  * Every task belonging to a campaign, in one traversal.
