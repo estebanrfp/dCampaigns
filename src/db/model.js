@@ -256,7 +256,7 @@ export const creators = (db) => db.map({ query: { requestedSide: "creator" } })
  * @param {{space: string, taskId: string, postUrl: string, proof: string, creator: string, reviewer: string}} submission
  * @returns {Promise<string>} The node id.
  */
-export const submitWork = async (db, { space, taskId, postUrl, proof, creator, reviewer, supersedes = null }) => {
+export const submitWork = async (db, { space, taskId, postUrl, proof, creator, reviewer, supersedes = null, attachment = null }) => {
   // A resubmission is a new attempt, never an edit of the rejected one. The
   // number is read from the delivery being replaced, so the chain counts itself.
   const previous = supersedes ? (await db.get(supersedes)).result?.value : null
@@ -271,6 +271,9 @@ export const submitWork = async (db, { space, taskId, postUrl, proof, creator, r
     creator,
     attempt,
     supersedes,
+    // The digest travels inside the delivery, which is signed now and judged
+    // later: it is what lets the record name the file that was accepted.
+    ...(attachment ?? {}),
     submittedAt: now(),
   })
   await db.sm.acls.grant(id, reviewer, "read")
@@ -280,6 +283,92 @@ export const submitWork = async (db, { space, taskId, postUrl, proof, creator, r
   // reads: `$edge` from any attempt reaches the one that answered it.
   if (supersedes) await db.link(supersedes, id)
   return id
+}
+
+/** The largest attachment worth putting in a replicated graph. */
+export const MAX_PROOF_BYTES = 400 * 1024
+
+/**
+ * Hex SHA-256 of a buffer — the name the evidence answers to.
+ *
+ * @param {ArrayBuffer} buffer
+ * @returns {Promise<string>}
+ */
+const sha256 = async (buffer) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+
+/**
+ * Store the evidence itself, not a link to it.
+ *
+ * A URL to somebody's file host is the one part of a delivery that still asks
+ * you to trust a server: it can 404, change hands, or serve different bytes
+ * tomorrow than it served when the work was accepted. The bytes go in the graph
+ * instead — a node with an owner, replicated and signed like every other claim,
+ * readable from your own replica with nobody online.
+ *
+ * The digest is what makes it evidence rather than an attachment. It is written
+ * into the *delivery*, which is signed before any verdict exists, so the record
+ * says which file was accepted. A backend cannot make that claim: whoever can
+ * write the row can swap the attachment afterwards and nothing disagrees.
+ *
+ * @param {object} db - The database.
+ * @param {File} file
+ * @param {string} space
+ * @returns {Promise<{proofId: string, proofHash: string, proofName: string, proofType: string, proofSize: number}>}
+ */
+export const attachProof = async (db, file, space) => {
+  if (file.size > MAX_PROOF_BYTES) {
+    throw new Error(`That file is ${Math.round(file.size / 1024)} KB; the limit is ${MAX_PROOF_BYTES / 1024} KB`)
+  }
+  const buffer = await file.arrayBuffer()
+  const proofHash = await sha256(buffer)
+
+  // Base64 because a node is JSON on the wire, and a typed array would not
+  // survive the trip intact.
+  const bytes = new Uint8Array(buffer)
+  let binary = ""
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+  }
+
+  const proofId = await db.sm.acls.set({
+    type: "proof",
+    space,
+    name: file.name,
+    mime: file.type || "application/octet-stream",
+    size: file.size,
+    hash: proofHash,
+    data: btoa(binary),
+    storedAt: now(),
+  })
+
+  return { proofId, proofHash, proofName: file.name, proofType: file.type, proofSize: file.size }
+}
+
+/**
+ * Read an attachment back, and check it is the one that was signed for.
+ *
+ * The digest is recomputed from the bytes actually held rather than trusted
+ * from the node that carries them, so a file swapped after the fact is caught
+ * on the way to the screen instead of being displayed as though nothing
+ * happened.
+ *
+ * @param {object} db - The database.
+ * @param {string} proofId
+ * @param {string} expectedHash - As written into the signed delivery.
+ * @returns {Promise<{blob: Blob, name: string, intact: boolean}|null>}
+ */
+export const readProof = async (db, proofId, expectedHash) => {
+  const { result } = await db.get(proofId)
+  if (!result?.value?.data) return null
+
+  const binary = atob(result.value.data)
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  const intact = (await sha256(bytes.buffer)) === expectedHash
+
+  return { blob: new Blob([bytes], { type: result.value.mime }), name: result.value.name, intact }
 }
 
 /**

@@ -9,7 +9,9 @@
  * security.
  */
 import {
+  MAX_PROOF_BYTES,
   assignTask,
+  attachProof,
   awaitNode,
   createCampaign,
   createClientSpace,
@@ -17,6 +19,7 @@ import {
   creators,
   decideBatch,
   decideSubmission,
+  readProof,
   recordPayout,
   resubmitWork,
   submitWork,
@@ -73,6 +76,59 @@ const field = (id, label, placeholder, type = "text") =>
     elt("label", { textContent: label, attrs: { for: id } }),
     elt("input", { id, type, placeholder })
   )
+
+/**
+ * The evidence field.
+ *
+ * A file rather than a link to one: a URL is the last thing in a delivery that
+ * still asks the reviewer to trust somebody's server, and it can serve
+ * different bytes tomorrow than it served today.
+ */
+const fileField = () =>
+  elt(
+    "div",
+    { className: "field" },
+    elt("label", { textContent: "Attach the evidence", attrs: { for: "proof-file" } }),
+    elt("input", { id: "proof-file", type: "file", attrs: { accept: "image/*,application/pdf" } }),
+    elt("p", {
+      className: "hint",
+      textContent: `Optional, up to ${MAX_PROOF_BYTES / 1024} KB. It travels in the graph, not to a file host, and its fingerprint is signed into the delivery — so the record says which file was accepted.`,
+    })
+  )
+
+/**
+ * Store whatever was chosen, and hand back what belongs in the delivery.
+ *
+ * @param {string} space
+ * @returns {Promise<object|null>} The attachment fields, or null if none.
+ */
+const takeAttachment = async (space) => {
+  const file = $("proof-file")?.files?.[0]
+  if (!file) return null
+  return attachProof(state.db, file, space)
+}
+
+/**
+ * Show an attachment, having checked it is the one that was signed for.
+ *
+ * The digest is recomputed from the bytes actually held, so a file swapped
+ * after the verdict is reported rather than displayed.
+ */
+const openProof = async (proofId, expectedHash) => {
+  try {
+    const proof = await readProof(state.db, proofId, expectedHash)
+    if (!proof) return toast("That evidence has not reached this device yet", "warning")
+    if (!proof.intact) {
+      return toast("This file does not match the fingerprint signed into the delivery", "error")
+    }
+    const url = URL.createObjectURL(proof.blob)
+    window.open(url, "_blank", "noopener")
+    // The tab has the bytes; this handle has done its job.
+    setTimeout(() => URL.revokeObjectURL(url), 30_000)
+  } catch (error) {
+    toast(error.message ?? "Could not open the evidence", "error")
+  }
+}
 
 // ── Spaces ───────────────────────────────────────────────────────────
 
@@ -219,7 +275,8 @@ const renderSubmitForm = (taskId, task) => {
     section(
       `Submit · ${task.title}`,
       field("post-url", "Link to the work", "https://…"),
-      field("proof", "Proof", "screenshot link, metrics, anything verifiable"),
+      field("proof", "Proof", "metrics, context, anything worth saying"),
+      fileField(),
       elt("button", {
         className: "primary",
         textContent: "Submit",
@@ -231,6 +288,7 @@ const renderSubmitForm = (taskId, task) => {
             // entry, whose `owner` the engine stamped and every peer defends.
             const entry = await awaitNode(state.db, `client:${state.space}`)
             if (!entry) return toast("This space is missing from the catalogue", "error")
+            const attachment = await takeAttachment(state.space)
             await submitWork(state.db, {
               space: state.space,
               taskId,
@@ -238,6 +296,7 @@ const renderSubmitForm = (taskId, task) => {
               proof,
               creator: state.address,
               reviewer: entry.value.owner,
+              attachment,
             })
             toast("Submitted — the delivery is yours and stays yours", "success")
             await render()
@@ -410,6 +469,18 @@ const submissionCard = (id, value, reviewing) => {
     { className: "card", dataset: { submission: id, creator: value.creator, attempt: String(value.attempt ?? 1) } },
     heading,
     elt("p", { className: "item-excerpt", textContent: value.proof }),
+    // The evidence, if any came with it. Opening it verifies it first.
+    value.proofId
+      ? elt(
+          "button",
+          {
+            className: "proof-link",
+            title: "Open the attached evidence — its fingerprint is checked first",
+            onclick: () => openProof(value.proofId, value.proofHash),
+          },
+          elt("span", { textContent: `📎 ${value.proofName ?? "evidence"}` })
+        )
+      : null,
     elt("div", { className: "row spread" }, addr(state.db, value.creator), slot),
     actions
   )

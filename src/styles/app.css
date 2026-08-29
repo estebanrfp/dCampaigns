@@ -280,6 +280,22 @@ body {
   color: var(--violet);
 }
 
+/* The evidence, reachable from the card it belongs to. */
+.proof-link {
+  align-self: flex-start;
+  padding: 4px var(--space-2);
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-subtle);
+}
+
+.proof-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ── Filters & bulk selection (design guide §5.4) ──────────────────── */
 
 .filters {
