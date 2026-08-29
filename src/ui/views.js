@@ -92,7 +92,7 @@ const fileField = () =>
     elt("input", { id: "proof-file", type: "file", attrs: { accept: "image/*,application/pdf" } }),
     elt("p", {
       className: "hint",
-      textContent: `Optional, up to ${MAX_PROOF_BYTES / 1024} KB. It travels in the graph, not to a file host, and its fingerprint is signed into the delivery — so the record says which file was accepted.`,
+      textContent: `Optional. Up to ${MAX_PROOF_BYTES / 1024} KB travels in the graph and is on the reviewer\u2019s disk before they look; anything larger stays here and goes straight to whoever asks. Either way its fingerprint is signed into the delivery, so the record says which file was accepted.`,
     })
   )
 

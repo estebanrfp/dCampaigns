@@ -20,6 +20,7 @@
  * `encryptDataForCurrentUser` for anything one identity keeps to itself.
  */
 import { SUPERADMIN } from "./config.js"
+import { fetchProof, stash, stashed } from "./proofs.js"
 
 const now = () => Date.now()
 const newId = () => crypto.randomUUID()
@@ -319,32 +320,51 @@ const sha256 = async (buffer) =>
  * @returns {Promise<{proofId: string, proofHash: string, proofName: string, proofType: string, proofSize: number}>}
  */
 export const attachProof = async (db, file, space) => {
-  if (file.size > MAX_PROOF_BYTES) {
-    throw new Error(`That file is ${Math.round(file.size / 1024)} KB; the limit is ${MAX_PROOF_BYTES / 1024} KB`)
-  }
   const buffer = await file.arrayBuffer()
   const proofHash = await sha256(buffer)
+  const mime = file.type || "application/octet-stream"
 
-  // Base64 because a node is JSON on the wire, and a typed array would not
-  // survive the trip intact.
-  const bytes = new Uint8Array(buffer)
-  let binary = ""
-  for (let i = 0; i < bytes.length; i += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+  // Small enough to be everyone's problem: the bytes ride in the graph, so the
+  // evidence is on the reviewer's disk before they think to look, and stays
+  // readable with nobody online.
+  if (file.size <= MAX_PROOF_BYTES) {
+    // Base64 because a node is JSON on the wire, and a typed array would not
+    // survive the trip intact.
+    const bytes = new Uint8Array(buffer)
+    let binary = ""
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+    }
+
+    const proofId = await db.sm.acls.set({
+      type: "proof",
+      space,
+      name: file.name,
+      mime,
+      size: file.size,
+      hash: proofHash,
+      transport: "graph",
+      data: btoa(binary),
+      storedAt: now(),
+    })
+    return { proofId, proofHash, proofName: file.name, proofSize: file.size }
   }
 
+  // Too large to make every peer carry forever. The record of it still goes in
+  // the graph — name, size and digest, which is what the delivery is signed
+  // over — while the bytes stay here and travel to whoever asks.
   const proofId = await db.sm.acls.set({
     type: "proof",
     space,
     name: file.name,
-    mime: file.type || "application/octet-stream",
+    mime,
     size: file.size,
     hash: proofHash,
-    data: btoa(binary),
+    transport: "channel",
     storedAt: now(),
   })
-
-  return { proofId, proofHash, proofName: file.name, proofType: file.type, proofSize: file.size }
+  await stash(proofId, file)
+  return { proofId, proofHash, proofName: file.name, proofSize: file.size }
 }
 
 /**
@@ -360,15 +380,27 @@ export const attachProof = async (db, file, space) => {
  * @param {string} expectedHash - As written into the signed delivery.
  * @returns {Promise<{blob: Blob, name: string, intact: boolean}|null>}
  */
-export const readProof = async (db, proofId, expectedHash) => {
+export const readProof = async (db, proofId, expectedHash, onProgress) => {
   const { result } = await db.get(proofId)
-  if (!result?.value?.data) return null
+  if (!result?.value) return null
+  const { data, mime, name } = result.value
 
-  const binary = atob(result.value.data)
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  const intact = (await sha256(bytes.buffer)) === expectedHash
+  // Three places it can be, in order of how little they cost: the graph, this
+  // device's own shelf (the author asking for their own file), and the peer
+  // that holds it.
+  let buffer = null
+  if (data) {
+    buffer = Uint8Array.from(atob(data), (character) => character.charCodeAt(0)).buffer
+  } else {
+    const local = await stashed(proofId)
+    buffer = local ? await local.arrayBuffer() : await fetchProof(db, proofId, onProgress)
+  }
+  if (!buffer) return null
 
-  return { blob: new Blob([bytes], { type: result.value.mime }), name: result.value.name, intact }
+  // Checked against the digest the delivery was signed over, never against the
+  // one travelling beside the bytes — that one comes from the same place they do.
+  const intact = (await sha256(buffer)) === expectedHash
+  return { blob: new Blob([buffer], { type: mime }), name, intact }
 }
 
 /**

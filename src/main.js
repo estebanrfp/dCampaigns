@@ -15,6 +15,7 @@
 import { openDb } from "./db/rooms.js"
 import { SUPERADMIN } from "./db/config.js"
 import { ensureRole, keepSide } from "./db/model.js"
+import { serveProofs } from "./db/proofs.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
 import { render } from "./ui/views.js"
@@ -37,6 +38,11 @@ const el = {
 //    engine's own recommendation — and everything below hangs off it.
 const db = await openDb()
 state.db = db
+
+// 1b. Answer requests for evidence this device holds. Wired once and left
+//     running: a peer serving its own files is not a background job, it is what
+//     being a peer means.
+serveProofs(db)
 
 // 2. Theme, before anything paints.
 initTheme()
