@@ -56,7 +56,7 @@ test("a rejected creator cannot sign their own approval", async ({ browser }) =>
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const aliceCard = alice.page.locator("[data-submission]").first()
   await expect(aliceCard).toBeVisible()
-  await aliceCard.getByPlaceholder("note (optional)").fill("Does not meet the brief")
+  await aliceCard.getByPlaceholder("note").fill("Does not meet the brief")
   await aliceCard.getByRole("button", { name: "Reject" }).click()
   await expect(aliceCard.locator(".verdict")).toContainText("rejected")
 

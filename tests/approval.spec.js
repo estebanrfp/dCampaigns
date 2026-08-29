@@ -58,7 +58,7 @@ test("a creator delivers and the client's approval is a separate signed record",
   await expect(card).toContainText("https://x.com/bob/status/1")
   await expect(card.locator(".verdict")).toHaveText("pending")
 
-  await card.getByPlaceholder("note (optional)").fill("Great thread")
+  await card.getByPlaceholder("note").fill("Great thread")
   await card.getByRole("button", { name: "Approve" }).click()
 
   await expect(card.locator(".verdict")).toContainText("approved")

@@ -53,7 +53,7 @@ test("a rejected delivery is answered by a second attempt, and both stay on the 
   await alice.page.getByRole("button", { name: "Submissions" }).click()
   const firstCard = alice.page.locator("[data-submission]").first()
   await expect(firstCard).toBeVisible()
-  await firstCard.getByPlaceholder("note (optional)").fill("Only one post, the brief asked for three")
+  await firstCard.getByPlaceholder("note").fill("Only one post, the brief asked for three")
   await firstCard.getByRole("button", { name: "Reject" }).click()
   await expect(firstCard.locator(".verdict")).toContainText("rejected")
 

@@ -421,29 +421,30 @@ const renderStats = async () => {
  * separate node, signed by whoever decided — can be painted onto it when it
  * lands, without the submission itself ever being rewritten.
  */
-const submissionCard = (id, value, reviewing) => {
+/**
+ * One delivery, as a row.
+ *
+ * A queue you scan, filter and select in handfuls is a table, not a gallery —
+ * design guide §5.4: separators rather than boxes, addresses in mono, and the
+ * actions kept out of the way until the row is the one you are looking at.
+ */
+const submissionRow = (id, value, reviewing) => {
   const slot = elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: "pending" })
 
-  // Deciding and what-comes-next share one slot: a delivery is either awaiting
+  // Deciding and what-comes-next share one cell: a delivery is either awaiting
   // a verdict or acting on the one it got, never both. The verdict arrives on
   // its own subscription, so this is filled in by `paintVerdict`.
-  const actions = elt("div", { className: "row", dataset: { actions: id } })
+  const actions = elt("div", { className: "row-actions", dataset: { actions: id } })
   if (reviewing) {
     actions.append(
-      elt("input", { type: "text", placeholder: "note (optional)", dataset: { note: id } }),
+      elt("input", { type: "text", placeholder: "note", dataset: { note: id } }),
       elt("button", { textContent: "Approve", onclick: () => decide(id, value, "approved") }),
       elt("button", { className: "danger", textContent: "Reject", onclick: () => decide(id, value, "rejected") })
     )
   }
 
-  // An attempt beyond the first is worth saying out loud: it is the history the
-  // model refuses to overwrite, and the reviewer is reading a second answer to
-  // a brief they already sent back once.
-  const title = elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" })
-
-  // Selecting is the reviewer's affordance and only while there is something to
-  // decide — a checkbox on a delivery already judged invites an act that would
-  // be refused.
+  // Selecting is the reviewer's affordance, and the column exists for everyone
+  // so the rows line up whoever is reading them.
   const pick = reviewing
     ? elt("input", {
         type: "checkbox",
@@ -454,37 +455,44 @@ const submissionCard = (id, value, reviewing) => {
       })
     : null
 
-  const heading = elt(
+  const work = elt(
     "div",
-    { className: "row spread" },
-    elt("div", { className: "row" }, pick, title),
-    value.attempt > 1 ? elt("span", { className: "attempt-tag", textContent: `attempt ${value.attempt}` }) : null
+    { className: "cell-stack" },
+    elt(
+      "div",
+      { className: "row" },
+      elt("span", { className: "item-title", textContent: value.postUrl || "(no link)" }),
+      // An attempt beyond the first is the history the model refuses to
+      // overwrite — the reviewer is reading a second answer to a brief they
+      // already sent back once.
+      value.attempt > 1 ? elt("span", { className: "attempt-tag", textContent: `attempt ${value.attempt}` }) : null
+    ),
+    elt("span", { className: "item-excerpt", textContent: value.proof }),
+    // The evidence, if any came with it. Opening it verifies it first.
+    value.proofId
+      ? elt("button", {
+          className: "proof-link",
+          textContent: `📎 ${value.proofName ?? "evidence"}`,
+          title: "Open the attached evidence — its fingerprint is checked first",
+          onclick: () => openProof(value.proofId, value.proofHash),
+        })
+      : null
   )
 
   return elt(
-    "article",
-    // The creator rides on the card so a verdict can be judged against it the
+    "tr",
+    // The creator rides on the row so a verdict can be judged against it the
     // moment it is painted: a self-signed approval is refused without a lookup.
     // The attempt rides along for the filter that asks about it.
-    { className: "card", dataset: { submission: id, creator: value.creator, attempt: String(value.attempt ?? 1) } },
-    heading,
-    elt("p", { className: "item-excerpt", textContent: value.proof }),
-    // The evidence, if any came with it. Opening it verifies it first.
-    value.proofId
-      ? elt(
-          "button",
-          {
-            className: "proof-link",
-            title: "Open the attached evidence — its fingerprint is checked first",
-            onclick: () => openProof(value.proofId, value.proofHash),
-          },
-          elt("span", { textContent: `📎 ${value.proofName ?? "evidence"}` })
-        )
-      : null,
-    elt("div", { className: "row spread" }, addr(state.db, value.creator), slot),
-    actions
+    { dataset: { submission: id, creator: value.creator, attempt: String(value.attempt ?? 1) } },
+    elt("td", { className: "col-pick" }, pick),
+    elt("td", {}, work),
+    elt("td", { className: "col-who" }, addr(state.db, value.creator)),
+    elt("td", { className: "col-verdict" }, slot),
+    elt("td", { className: "col-actions" }, actions)
   )
 }
+
 
 /**
  * Decide on a delivery.
@@ -673,7 +681,25 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
 
   const reviewing = can("approve")
   clear(dom.content)
-  const list = elt("div", { className: "card-grid" })
+  const list = elt("tbody")
+  const table = elt(
+    "table",
+    { className: "queue" },
+    elt(
+      "thead",
+      {},
+      elt(
+        "tr",
+        {},
+        elt("th", { className: "col-pick" }),
+        elt("th", { textContent: "Delivery" }),
+        elt("th", { className: "col-who", textContent: "From" }),
+        elt("th", { className: "col-verdict", textContent: "Verdict" }),
+        elt("th", { className: "col-actions" })
+      )
+    ),
+    list
+  )
 
   // The queue, narrowed. "Reworked" is the one an operator actually reaches for
   // — work that came back tells you where the brief was unclear — and it is
@@ -723,7 +749,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
           // The cursor is the last row of this window — a node id, not an
           // offset, so a delivery arriving meanwhile does not shift the page
           // under whoever is reading it.
-          const last = list.querySelector(".card:last-child")?.dataset.id
+          const last = list.querySelector("tr:last-child")?.dataset.id
           if (!last) return
           const next = [...cursors]
           next[page] = last
@@ -740,7 +766,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
       elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
       filters,
       bulkBar,
-      list,
+      table,
       pager
     )
   )
@@ -792,7 +818,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
     }
     list.querySelectorAll("[data-pick]").forEach((box) => {
       box.checked = selected.has(box.dataset.pick)
-      box.closest(".card")?.classList.toggle("picked", selected.has(box.dataset.pick))
+      box.closest("tr")?.classList.toggle("picked", selected.has(box.dataset.pick))
     })
 
     clear(bulkBar)
@@ -841,7 +867,7 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
     syncBulkBar()
   }
 
-  const rows = liveList(list, ({ id, value }) => submissionCard(id, value, reviewing))
+  const rows = liveList(list, ({ id, value }) => submissionRow(id, value, reviewing))
   const submissions = await state.db.map(
     {
       // The engine answers what it can: `reworked` is a property of the

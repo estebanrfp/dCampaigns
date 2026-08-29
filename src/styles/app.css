@@ -280,6 +280,86 @@ body {
   color: var(--violet);
 }
 
+/* ── The queue, as a table (design guide §5.4) ─────────────────────────
+   Separators rather than boxes, no zebra striping, addresses in mono, and row
+   actions kept out of the way until the row is the one being read. */
+.queue {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.queue th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  text-align: left;
+}
+
+.queue td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.queue tr.picked td {
+  background: var(--bg-tertiary);
+}
+
+.col-pick {
+  width: 32px;
+}
+
+.col-who,
+.col-verdict {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Out of the way until wanted: the row you are reading is the row that offers
+   its controls. Focus counts as reading, so the keyboard is not shut out. */
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.queue tr:hover .row-actions,
+.row-actions:focus-within,
+.queue tr.picked .row-actions {
+  opacity: 1;
+}
+
+.row-actions input[type="text"] {
+  width: 140px;
+}
+
+/* Coarse pointers have no hover to reveal anything with. */
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
 /* Paging controls sit under the list, never over it. */
 .pager {
   align-items: center;
