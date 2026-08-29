@@ -323,7 +323,7 @@ body {
 }
 
 .queue td {
-  padding: var(--space-3);
+  padding: var(--space-4) var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: top;
 }
@@ -332,18 +332,26 @@ body {
   background: var(--bg-tertiary);
 }
 
+/* Real widths rather than `width: 1%`. Collapsing the meta columns pushes them
+   into a huddle on the right of a wide screen and leaves the first column with
+   a field of empty space — the columns line up either way, but it reads as a
+   layout that was never looked at. */
 .col-pick {
-  width: 32px;
+  width: 36px;
 }
 
-.col-who,
+.col-who {
+  width: 22%;
+  min-width: 120px;
+}
+
 .col-verdict {
-  width: 1%;
-  white-space: nowrap;
+  width: 15%;
+  min-width: 96px;
 }
 
 .col-actions {
-  width: 1%;
+  width: 260px;
   white-space: nowrap;
   text-align: right;
 }
@@ -380,6 +388,90 @@ body {
   .row-actions {
     opacity: 1;
   }
+}
+
+/* ── The same rows, as cards ───────────────────────────────────────────
+   No second renderer: the table is the markup and this is a presentation of
+   it, so the two can never disagree about what a list contains. */
+[data-view="cards"] .queue {
+  display: block;
+}
+
+[data-view="cards"] .queue thead {
+  display: none; /* a card carries its own labels */
+}
+
+[data-view="cards"] .queue tbody {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+
+[data-view="cards"] .queue tr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+[data-view="cards"] .queue tr:hover {
+  border-color: var(--border-strong);
+}
+
+[data-view="cards"] .queue tr.picked {
+  border-color: var(--accent);
+}
+
+[data-view="cards"] .queue td {
+  display: block;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+
+/* A card has no column above it to say what a value is, so the cell says it. */
+[data-view="cards"] .queue td[data-label]::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+/* Nothing to hover along a row here: the actions are simply part of the card. */
+[data-view="cards"] .row-actions {
+  opacity: 1;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+[data-view="cards"] .queue tr.picked td,
+[data-view="cards"] .queue td {
+  background: none;
+}
+
+/* The picker belongs with the title in a card, not in a column of its own. */
+[data-view="cards"] .col-pick {
+  order: -1;
+}
+
+/* Which icon the toggle shows: the one you would be switching to. */
+.icon-cards,
+[data-view="cards"] .icon-rows {
+  display: block;
+}
+
+.icon-rows,
+[data-view="cards"] .icon-cards {
+  display: none;
 }
 
 /* Paging controls sit under the list, never over it. */
@@ -655,6 +747,33 @@ button.danger:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* Rhythm inside a section. A toolbar sitting directly on the list it governs
+   reads as part of it; the list needs room to start. */
+.content section + section {
+  margin-top: var(--space-6);
+}
+
+.content section > .row {
+  margin-bottom: var(--space-5);
+}
+
+/* The layout switch belongs at the far end of the toolbar it governs, which is
+   also where the eye lands last — after the actions, before the list. */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.view-toggle .icon-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--bg-secondary);
 }
 
 .spread {

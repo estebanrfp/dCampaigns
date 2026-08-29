@@ -18,6 +18,7 @@ import { ensureRole, keepSide } from "./db/model.js"
 import { serveProofs } from "./db/proofs.js"
 import { initIdentity } from "./auth/identity.js"
 import { initTheme } from "./ui/theme.js"
+import { initViewMode } from "./ui/view-mode.js"
 import { render } from "./ui/views.js"
 import { show, toast } from "./ui/feedback.js"
 import { clearSession, state } from "./state/app.js"
@@ -44,8 +45,10 @@ state.db = db
 //     being a peer means.
 serveProofs(db)
 
-// 2. Theme, before anything paints.
+// 2. Theme and view mode, before anything paints. Both are attributes on the
+//    root, so a view rendered later is already correct instead of being told.
 initTheme()
+initViewMode()
 
 // 3. Every listener. Pure DOM wiring — no data, no session.
 el.logout.onclick = () => db.sm.clearSecurity()

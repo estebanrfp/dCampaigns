@@ -29,6 +29,7 @@ import { computeStats, humanDuration } from "../db/stats.js"
 import { state } from "../state/app.js"
 import { addr, clear, elt, liveList, when } from "./dom.js"
 import { livePeerMap } from "./presence.js"
+import { viewToggle } from "./view-mode.js"
 import { show, toast } from "./feedback.js"
 
 const $ = (id) => document.getElementById(id)
@@ -240,7 +241,8 @@ const renderTasks = async () => {
         "div",
         { className: "row" },
         elt("button", { textContent: "My submissions", onclick: () => renderSubmissions() }),
-        elt("button", { textContent: "My stats", onclick: () => renderStats() })
+        elt("button", { textContent: "My stats", onclick: () => renderStats() }),
+        viewToggle()
       ),
       table
     )
@@ -268,13 +270,13 @@ const renderTasks = async () => {
         // Under a column headed "Asked of", the cell that matters most to a
         // creator is the one that says it is theirs — an address would make
         // them compare it with their own to find out.
-        elt("td", { className: "col-who" },
+        elt("td", { className: "col-who", dataset: { label: "Asked of" } },
           !value.assignee
             ? elt("span", { className: "stat-label", textContent: "anyone" })
             : value.assignee === state.address
               ? elt("span", { className: "item-title", textContent: "you" })
               : addr(state.db, value.assignee)),
-        elt("td", { className: "col-verdict" },
+        elt("td", { className: "col-verdict", dataset: { label: "Status" } },
           elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })),
         elt(
           "td",
@@ -518,9 +520,9 @@ const submissionRow = (id, value, reviewing) => {
     { dataset: { submission: id, creator: value.creator, attempt: String(value.attempt ?? 1) } },
     elt("td", { className: "col-pick" }, pick),
     elt("td", {}, work),
-    elt("td", { className: "col-who" }, addr(state.db, value.creator)),
-    elt("td", { className: "col-verdict" }, slot),
-    elt("td", { className: "col-actions" }, actions)
+    elt("td", { className: "col-who", dataset: { label: "From" } }, addr(state.db, value.creator)),
+    elt("td", { className: "col-verdict", dataset: { label: "Verdict" } }, slot),
+    elt("td", { className: "col-actions", dataset: { label: "" } }, actions)
   )
 }
 
@@ -794,7 +796,12 @@ const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
   dom.content.append(
     section(
       reviewing ? "Submissions" : "My submissions",
-      elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
+      elt(
+        "div",
+        { className: "row" },
+        elt("button", { textContent: "← Back", onclick: () => render() }),
+        viewToggle()
+      ),
       filters,
       bulkBar,
       table,
@@ -1015,7 +1022,8 @@ const renderCampaigns = async () => {
         "div",
         { className: "row" },
         elt("button", { textContent: "Submissions", onclick: () => renderSubmissions() }),
-        elt("button", { textContent: "Stats", onclick: () => renderStats() })
+        elt("button", { textContent: "Stats", onclick: () => renderStats() }),
+        viewToggle()
       ),
       elt(
         "table",
@@ -1052,7 +1060,7 @@ const renderCampaigns = async () => {
             elt("span", { className: "item-excerpt", textContent: value.brief })
           )
         ),
-        elt("td", { className: "col-who" }, elt("span", { className: "addr", textContent: when(value.createdAt) })),
+        elt("td", { className: "col-who", dataset: { label: "Created" } }, elt("span", { className: "addr", textContent: when(value.createdAt) })),
         elt("td", { className: "col-actions" },
           elt("button", { textContent: "Open", onclick: () => renderCampaign(id, value) }))
       )
@@ -1105,7 +1113,8 @@ const renderCampaign = async (campaignId, campaign) => {
           disabled: !can("assign"),
           title: can("assign") ? "Add a task to this campaign" : "Only the client can assign work",
           onclick: () => renderTaskForm(campaignId, campaign),
-        })
+        }),
+        viewToggle()
       ),
       table
     )
@@ -1137,14 +1146,14 @@ const renderCampaign = async (campaignId, campaign) => {
         // Who was asked. Named where a name is known, because a client reads
         // this to decide who to chase — and an unassigned task says so rather
         // than leaving the cell blank.
-        elt("td", { className: "col-who" },
+        elt("td", { className: "col-who", dataset: { label: "Asked of" } },
           elt("span", {
             className: value.assignee ? "item-title" : "stat-label",
             textContent: value.assignee
               ? (nameOf.get(value.assignee) ?? state.db.sm.abbrAddr(value.assignee))
               : "anyone",
           })),
-        elt("td", { className: "col-verdict" },
+        elt("td", { className: "col-verdict", dataset: { label: "Status" } },
           elt("span", { className: "verdict", dataset: { verdict: "pending" }, textContent: value.status })),
         elt(
           "td",
@@ -1414,7 +1423,7 @@ const mountAdmin = async () => {
             elt("span", { className: "item-excerpt", textContent: value.slug })
           )
         ),
-        elt("td", { className: "col-who" }, addr(state.db, value.owner))
+        elt("td", { className: "col-who", dataset: { label: "Owner" } }, addr(state.db, value.owner))
       )
     )
   )
