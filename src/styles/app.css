@@ -280,6 +280,28 @@ body {
   color: var(--violet);
 }
 
+/* ── The network, on a map ─────────────────────────────────────────────
+   Leaflet paints inside this box; the tiles are Esri's keyless canvas, dark or
+   light to follow the palette. */
+.peer-plot {
+  height: 320px;
+  margin: var(--space-3) 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  z-index: 0; /* keep Leaflet's panes under the app's dialogs */
+}
+
+.peer-plot .leaflet-control-attribution {
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.peer-plot .leaflet-control-attribution a {
+  color: var(--text-secondary);
+}
+
 /* ── The queue, as a table (design guide §5.4) ─────────────────────────
    Separators rather than boxes, no zebra striping, addresses in mono, and row
    actions kept out of the way until the row is the one being read. */

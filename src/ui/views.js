@@ -28,6 +28,7 @@ import {
 import { computeStats, humanDuration } from "../db/stats.js"
 import { state } from "../state/app.js"
 import { addr, clear, elt, liveList, when } from "./dom.js"
+import { livePeerMap } from "./presence.js"
 import { show, toast } from "./feedback.js"
 
 const $ = (id) => document.getElementById(id)
@@ -1237,8 +1238,13 @@ const mountAdmin = async () => {
 
   clear(dom.list)
   clear(dom.content)
+
+  // The network first, because it is the thing that makes the rest possible and
+  // the one panel a centralised product has no way to draw.
+  const network = elt("div", {})
   const spaces = elt("div", { className: "card-grid" })
-  dom.content.append(section("Client spaces", spaces))
+  dom.content.append(section("The network", network), section("Client spaces", spaces))
+  const stopMap = livePeerMap(state.db, network)
 
   const drawPerson = liveList(dom.list, ({ id, value }) => {
     // The Security Manager keys these nodes by address; the value carries the
@@ -1312,6 +1318,9 @@ const mountAdmin = async () => {
   return () => {
     users.unsubscribe?.()
     catalogue.unsubscribe?.()
+    // Leaving the view stops the watcher: sharing a position is a thing you do
+    // while looking at this panel, not a thing the app keeps doing behind you.
+    stopMap()
   }
 }
 
