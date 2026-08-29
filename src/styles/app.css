@@ -280,6 +280,14 @@ body {
   color: var(--violet);
 }
 
+/* Paging controls sit under the list, never over it. */
+.pager {
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
 /* The evidence, reachable from the card it belongs to. */
 .proof-link {
   align-self: flex-start;

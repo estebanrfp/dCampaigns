@@ -665,7 +665,9 @@ const renderResubmitForm = async (submissionId) => {
  * privacy boundary (the graph replicates to both) but because a creator's own
  * deliveries are the only ones they can act on.
  */
-const renderSubmissions = async (filter = "all") => {
+const PAGE_SIZE = 12
+
+const renderSubmissions = async (filter = "all", page = 0, cursors = []) => {
   unmount?.()
   unmount = null
 
@@ -691,7 +693,7 @@ const renderSubmissions = async (filter = "all") => {
         className: "filter-btn",
         textContent: label,
         attrs: { "aria-current": String(key === filter) },
-        onclick: () => renderSubmissions(key),
+        onclick: () => renderSubmissions(key),  // a new filter is a new first page
       })
     )
   )
@@ -700,13 +702,46 @@ const renderSubmissions = async (filter = "all") => {
   // bar that is always in the way.
   const bulkBar = elt("div", { className: "bulk-bar hidden" })
 
+  // How full this window came back, which is the only honest way to know
+  // whether there is another page: a cursor cannot say what is beyond it.
+  let onPage = 0
+  const pager = elt("div", { className: "row pager" })
+  const updatePager = () => {
+    clear(pager)
+    if (page === 0 && onPage < PAGE_SIZE) return // one page, so no controls
+    pager.append(
+      elt("button", {
+        textContent: "\u2190 Newer",
+        disabled: page === 0,
+        onclick: () => renderSubmissions(filter, page - 1, cursors),
+      }),
+      elt("span", { className: "stat-label", textContent: `Page ${page + 1}` }),
+      elt("button", {
+        textContent: "Older \u2192",
+        disabled: onPage < PAGE_SIZE,
+        onclick: () => {
+          // The cursor is the last row of this window — a node id, not an
+          // offset, so a delivery arriving meanwhile does not shift the page
+          // under whoever is reading it.
+          const last = list.querySelector(".card:last-child")?.dataset.id
+          if (!last) return
+          const next = [...cursors]
+          next[page] = last
+          renderSubmissions(filter, page + 1, next)
+        },
+      })
+    )
+  }
+
+
   dom.content.append(
     section(
       reviewing ? "Submissions" : "My submissions",
       elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
       filters,
       bulkBar,
-      list
+      list,
+      pager
     )
   )
 
@@ -819,10 +854,18 @@ const renderSubmissions = async (filter = "all") => {
       },
       field: "submittedAt",
       order: "desc",
+      // A window, not the whole queue. The engine keeps it live: with `$limit`,
+      // `added` and `removed` also fire as nodes enter and fall out of it, so
+      // this stays a subscription rather than becoming a snapshot the way a
+      // paged read usually does.
+      $limit: PAGE_SIZE,
+      $after: page > 0 ? cursors[page - 1] : null,
     },
     (event) => {
       rows(event)
       repaint(event.id)
+      if (event.action === "initial") onPage += 1
+      updatePager()
     }
   )
 
