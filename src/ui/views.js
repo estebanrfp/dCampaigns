@@ -15,6 +15,7 @@ import {
   createClientSpace,
   createTask,
   creators,
+  decideBatch,
   decideSubmission,
   recordPayout,
   resubmitWork,
@@ -38,6 +39,13 @@ const dom = {
 
 /** @type {Function|null} Teardown for the view currently on screen. */
 let unmount = null
+
+/**
+ * @type {Function|null} Set by the submissions view while it is mounted, so a
+ * card can report a selection without the list threading state through every
+ * render. Cleared with the view.
+ */
+let pickHandler = null
 
 /**
  * The verbs the live role may sign, mirrored from the constitution.
@@ -372,17 +380,34 @@ const submissionCard = (id, value, reviewing) => {
   // An attempt beyond the first is worth saying out loud: it is the history the
   // model refuses to overwrite, and the reviewer is reading a second answer to
   // a brief they already sent back once.
-  const heading = value.attempt > 1
-    ? elt("div", { className: "row spread" },
-        elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" }),
-        elt("span", { className: "attempt-tag", textContent: `attempt ${value.attempt}` }))
-    : elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" })
+  const title = elt("div", { className: "item-title", textContent: value.postUrl || "(no link)" })
+
+  // Selecting is the reviewer's affordance and only while there is something to
+  // decide — a checkbox on a delivery already judged invites an act that would
+  // be refused.
+  const pick = reviewing
+    ? elt("input", {
+        type: "checkbox",
+        className: "pick",
+        dataset: { pick: id },
+        attrs: { "aria-label": "Select this delivery" },
+        onchange: (event) => pickHandler?.(id, event.target.checked),
+      })
+    : null
+
+  const heading = elt(
+    "div",
+    { className: "row spread" },
+    elt("div", { className: "row" }, pick, title),
+    value.attempt > 1 ? elt("span", { className: "attempt-tag", textContent: `attempt ${value.attempt}` }) : null
+  )
 
   return elt(
     "article",
     // The creator rides on the card so a verdict can be judged against it the
     // moment it is painted: a self-signed approval is refused without a lookup.
-    { className: "card", dataset: { submission: id, creator: value.creator } },
+    // The attempt rides along for the filter that asks about it.
+    { className: "card", dataset: { submission: id, creator: value.creator, attempt: String(value.attempt ?? 1) } },
     heading,
     elt("p", { className: "item-excerpt", textContent: value.proof }),
     elt("div", { className: "row spread" }, addr(state.db, value.creator), slot),
@@ -569,17 +594,47 @@ const renderResubmitForm = async (submissionId) => {
  * privacy boundary (the graph replicates to both) but because a creator's own
  * deliveries are the only ones they can act on.
  */
-const renderSubmissions = async () => {
+const renderSubmissions = async (filter = "all") => {
   unmount?.()
   unmount = null
 
   const reviewing = can("approve")
   clear(dom.content)
   const list = elt("div", { className: "card-grid" })
+
+  // The queue, narrowed. "Reworked" is the one an operator actually reaches for
+  // — work that came back tells you where the brief was unclear — and it is
+  // answered by the engine (`attempt > 1`) rather than by counting in the view.
+  const FILTERS = [
+    ["all", "All"],
+    ["pending", "Awaiting a verdict"],
+    ["approved", "Approved"],
+    ["rejected", "Rejected"],
+    ["reworked", "Delivered twice"],
+  ]
+  const filters = elt(
+    "div",
+    { className: "filters" },
+    ...FILTERS.map(([key, label]) =>
+      elt("button", {
+        className: "filter-btn",
+        textContent: label,
+        attrs: { "aria-current": String(key === filter) },
+        onclick: () => renderSubmissions(key),
+      })
+    )
+  )
+
+  // Appears only when something is selected: a bar that is always there is a
+  // bar that is always in the way.
+  const bulkBar = elt("div", { className: "bulk-bar hidden" })
+
   dom.content.append(
     section(
       reviewing ? "Submissions" : "My submissions",
       elt("div", { className: "row" }, elt("button", { textContent: "← Back", onclick: () => render() })),
+      filters,
+      bulkBar,
       list
     )
   )
@@ -598,14 +653,99 @@ const renderSubmissions = async () => {
     if (verdict) paintVerdict(list, verdict)
     const payout = known.payouts.get(id)
     if (payout) paintPayout(list, payout)
+    applyFilter(id)
+    syncBulkBar()
+  }
+
+  /**
+   * Hide what the chosen filter excludes.
+   *
+   * Three of the five filters ask about the verdict, which lives in another
+   * node and arrives on its own subscription — so this cannot be a query, and
+   * pretending otherwise would mean a list that is briefly wrong on every load.
+   * The engine answers what it can (`attempt > 1` for reworked, below); the
+   * rest is decided here, once the claim about that delivery is in hand.
+   */
+  function applyFilter(id) {
+    const card = list.querySelector(`[data-id="${CSS.escape(id)}"]`)
+    if (!card) return
+    const verdict = known.verdicts.get(id)?.verdict ?? "pending"
+    const keep =
+      filter === "all" ||
+      (filter === "reworked" ? Number(card.dataset.attempt ?? 1) > 1 : filter === verdict)
+    card.classList.toggle("hidden", !keep)
+  }
+
+  /** The selection, and the bar that acts on it. */
+  const selected = new Set()
+  function syncBulkBar() {
+    // A delivery already decided is not selectable, and one that vanished from
+    // the list takes its selection with it.
+    for (const id of [...selected]) {
+      if (known.verdicts.has(id) || !list.querySelector(`[data-id="${CSS.escape(id)}"]`)) selected.delete(id)
+    }
+    list.querySelectorAll("[data-pick]").forEach((box) => {
+      box.checked = selected.has(box.dataset.pick)
+      box.closest(".card")?.classList.toggle("picked", selected.has(box.dataset.pick))
+    })
+
+    clear(bulkBar)
+    bulkBar.classList.toggle("hidden", selected.size === 0)
+    if (!selected.size) return
+    bulkBar.append(
+      elt("span", { className: "bulk-count", textContent: `${selected.size} selected` }),
+      elt("input", { type: "text", placeholder: "note for all of them", id: "bulk-note" }),
+      elt("button", { textContent: "Approve all", onclick: () => decideSelected("approved") }),
+      elt("button", { className: "danger", textContent: "Reject all", onclick: () => decideSelected("rejected") }),
+      elt("button", { className: "ghost", textContent: "Clear", onclick: () => (selected.clear(), syncBulkBar()) })
+    )
+  }
+
+  /** Decide everything selected, as one signed act that says so. */
+  async function decideSelected(verdict) {
+    try {
+      await state.db.sm.executeWithPermission("approve")
+    } catch {
+      return toast("Your role does not hold `approve`", "warning")
+    }
+    const submissions = [...selected]
+      .map((id) => ({ id, creator: list.querySelector(`[data-id="${CSS.escape(id)}"]`)?.dataset.creator }))
+      .filter((entry) => entry.creator)
+    if (!submissions.length) return
+
+    try {
+      await decideBatch(state.db, {
+        space: state.space,
+        submissions,
+        verdict,
+        note: $("bulk-note")?.value.trim() ?? "",
+        reviewer: state.address,
+      })
+      selected.clear()
+      syncBulkBar()
+      toast(`${submissions.length} decided together — the record says so`, "info")
+    } catch (error) {
+      toast(error.message ?? "Could not decide those", "error")
+    }
+  }
+
+  // The card needs a way to reach the selection without threading it through.
+  pickHandler = (id, on) => {
+    on ? selected.add(id) : selected.delete(id)
+    syncBulkBar()
   }
 
   const rows = liveList(list, ({ id, value }) => submissionCard(id, value, reviewing))
   const submissions = await state.db.map(
     {
-      query: reviewing
-        ? { type: "submission", space: state.space }
-        : { type: "submission", space: state.space, creator: state.address },
+      // The engine answers what it can: `reworked` is a property of the
+      // delivery itself, so it is a query, not a pass over the rendered list.
+      query: {
+        type: "submission",
+        space: state.space,
+        ...(reviewing ? {} : { creator: state.address }),
+        ...(filter === "reworked" ? { attempt: { $gt: 1 } } : {}),
+      },
       field: "submittedAt",
       order: "desc",
     },
@@ -634,6 +774,7 @@ const renderSubmissions = async () => {
     submissions.unsubscribe?.()
     verdicts.unsubscribe?.()
     payouts.unsubscribe?.()
+    pickHandler = null
   }
 }
 

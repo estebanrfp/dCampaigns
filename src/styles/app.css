@@ -280,6 +280,63 @@ body {
   color: var(--violet);
 }
 
+/* ── Filters & bulk selection (design guide §5.4) ──────────────────── */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.filter-btn {
+  padding: 6px var(--space-3);
+  font-size: 13px;
+}
+
+.filter-btn[aria-current="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Appears only with a selection, and shares the chrome band height so it reads
+   as part of the furniture rather than something that fell into the page. */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.bulk-count {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bulk-bar input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.pick {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.card.picked {
+  border-color: var(--accent);
+}
+
 /* An attempt beyond the first: the history the model refuses to overwrite. */
 .attempt-tag {
   flex: none;

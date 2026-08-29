@@ -319,14 +319,58 @@ export const resubmitWork = (db, previous, { postUrl, proof, reviewer }) =>
  * @param {{space: string, submissionId: string, verdict: 'approved'|'rejected', note: string, reviewer: string, creator: string}} decision
  * @returns {Promise<string>} The node id.
  */
-export const decideSubmission = async (db, { space, submissionId, verdict, note, reviewer, creator }) => {
+export const decideSubmission = async (db, { space, submissionId, verdict, note, reviewer, creator, batchId = null }) => {
   const id = await db.sm.acls.set(
-    { type: "approval", space, submissionId, verdict, note, reviewer, decidedAt: now() },
+    // `batchId` is null when this delivery was read on its own, and names the
+    // act when it was decided alongside others. The interface says which, so a
+    // bulk approval never passes itself off as an individual reading.
+    { type: "approval", space, submissionId, verdict, note, reviewer, batchId, decidedAt: now() },
     `approval:${submissionId}`
   )
   await db.sm.acls.grant(id, creator, "read")
   if (reviewer !== SUPERADMIN.address) await db.sm.acls.grant(id, SUPERADMIN.address, "delete")
   return id
+}
+
+/**
+ * Decide on several deliveries in one act.
+ *
+ * Every admin tool grows this the moment a queue does, and every backend
+ * records it as though it had not happened: fifty rows change `status`, and the
+ * result is indistinguishable from fifty separate readings. That difference is
+ * exactly what a reviewer's judgement is worth, and it is the first thing lost.
+ *
+ * So the act itself is a node — signed by the reviewer, naming what it covered
+ * and when — and each verdict points back at it. Each delivery still gets its
+ * own verdict, because a verdict is about one delivery and has to stand alone.
+ * What the batch adds is the honest part: a record that says *these were decided
+ * together*, which anyone reading later can weigh for themselves.
+ *
+ * @param {object} db - The database.
+ * @param {{space: string, submissions: Array<{id: string, creator: string}>, verdict: 'approved'|'rejected', note: string, reviewer: string}} decision
+ * @returns {Promise<string>} The batch node id.
+ */
+export const decideBatch = async (db, { space, submissions, verdict, note, reviewer }) => {
+  const batchId = `batch:${newId()}`
+  await db.sm.acls.set(
+    {
+      type: "batch",
+      space,
+      verdict,
+      note,
+      reviewer,
+      covers: submissions.map(({ id }) => id),
+      decidedAt: now(),
+    },
+    batchId
+  )
+
+  // Sequentially on purpose: each verdict is its own signed operation, and the
+  // engine stamps them in order, so the record reads the way it happened.
+  for (const { id, creator } of submissions) {
+    await decideSubmission(db, { space, submissionId: id, verdict, note, reviewer, creator, batchId })
+  }
+  return batchId
 }
 
 /**
