@@ -696,9 +696,15 @@ const paintPayout = (root, value) => {
  * it, and both stay on the record.
  */
 const renderResubmitForm = async (submissionId) => {
-  setHead({ back: { label: "Submissions", onclick: () => renderSubmissions() }, title: `Deliver again · attempt ${(result.value.attempt ?? 1) + 1}` })
+  // The delivery first: the head names which attempt this is, and that number
+  // comes from the node it answers.
   const { result } = await state.db.get(submissionId)
   if (!result) return toast("That delivery is no longer here", "error")
+
+  setHead({
+    back: { label: "Submissions", onclick: () => renderSubmissions() },
+    title: `Deliver again · attempt ${(result.value.attempt ?? 1) + 1}`,
+  })
 
   clear(dom.content)
   dom.content.append(
